@@ -1,0 +1,16 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ClipSync", "ClipSync\ClipSync.csproj", "{9C6C1B2F-0C7A-4E5E-9B2B-0D5E9A5B3C01}"
+EndProject
+Global
+    GlobalSection(SolutionConfigurationPlatforms) = preSolution
+        Debug|x64 = Debug|x64
+        Release|x64 = Release|x64
+    EndGlobalSection
+    GlobalSection(ProjectConfigurationPlatforms) = postSolution
+        {9C6C1B2F-0C7A-4E5E-9B2B-0D5E9A5B3C01}.Debug|x64.ActiveCfg = Debug|x64
+        {9C6C1B2F-0C7A-4E5E-9B2B-0D5E9A5B3C01}.Debug|x64.Build.0 = Debug|x64
+        {9C6C1B2F-0C7A-4E5E-9B2B-0D5E9A5B3C01}.Release|x64.ActiveCfg = Release|x64
+        {9C6C1B2F-0C7A-4E5E-9B2B-0D5E9A5B3C01}.Release|x64.Build.0 = Release|x64
+    EndGlobalSection
+EndGlobal

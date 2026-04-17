@@ -1,0 +1,28 @@
+2026-04-12 16:07:55.679 ClipSync[14153:166192] ClipSync: listener started on port 0
+2026-04-12 16:07:55.680 ClipSync[14153:166192] ClipSync: browser started
+2026-04-12 16:07:55.742 ClipSync[14153:166192] ClipSync: listener state: ready
+2026-04-12 16:07:55.742 ClipSync[14153:166192] ClipSync: browser state: ready
+2026-04-12 16:07:56.447 ClipSync[14153:166192] ClipSync: service registration: add(Kodachrome._clipsync._tcp.local.)
+2026-04-12 16:07:56.701 ClipSync[14153:166192] ClipSync: browse results: 1
+2026-04-12 16:07:56.701 ClipSync[14153:166192] ClipSync: peer Kodachrome did=b6bf89d9
+2026-04-12 16:08:06.805 ClipSync[14153:166192] ClipSync: browse results: 2
+2026-04-12 16:08:06.805 ClipSync[14153:166192] ClipSync: peer BetaMacBook did=67e32ec5
+2026-04-12 16:08:06.806 ClipSync[14153:166192] ClipSync: peer Kodachrome did=b6bf89d9
+2026-04-12 16:08:12.361 ClipSync[14153:166192] ClipSync: incoming connection from fe80::1c40:df40:163c:105a%en7.50096
+2026-04-12 16:08:12.362 ClipSync[14153:166192] ClipSync: conn server state preparing
+2026-04-12 16:08:23.338 ClipSync[14153:166192] ClipSync: incoming connection from fe80::1c40:df40:163c:105a%en0.50097
+2026-04-12 16:08:23.339 ClipSync[14153:166192] ClipSync: incoming connection from fd94:2749:aa65:1:1877:5d93:39f6:a146.61515
+2026-04-12 16:08:23.339 ClipSync[14153:166192] ClipSync: incoming connection from 10.0.0.198:64225
+2026-04-12 16:08:23.339 ClipSync[14153:166192] ClipSync: conn server state preparing
+2026-04-12 16:08:23.339 ClipSync[14153:166192] ClipSync: conn server state preparing
+2026-04-12 16:08:23.339 ClipSync[14153:166192] ClipSync: conn server state preparing
+2026-04-12 16:08:23.340 ClipSync[14153:166192] ClipSync: incoming connection from 10.0.0.198:64224
+2026-04-12 16:08:23.340 ClipSync[14153:166192] ClipSync: incoming connection from fd94:2749:aa65:1:1877:5d93:39f6:a146.61514
+2026-04-12 16:08:23.340 ClipSync[14153:166192] ClipSync: conn server state preparing
+2026-04-12 16:08:23.340 ClipSync[14153:166192] ClipSync: conn server state preparing
+2026-04-12 16:08:23.353 ClipSync[14153:166192] ClipSync: conn server state failed(POSIXErrorCode(rawValue: 61): Connection refused)
+2026-04-12 16:08:23.375 ClipSync[14153:166192] ClipSync: conn server state failed(-9816: server closed session with no notification)
+2026-04-12 16:08:23.376 ClipSync[14153:166192] ClipSync: conn server state failed(-9808: bad certificate format)
+2026-04-12 16:08:23.376 ClipSync[14153:166192] ClipSync: conn server state failed(-9816: server closed session with no notification)
+2026-04-12 16:08:23.378 ClipSync[14153:166192] ClipSync: conn server state failed(POSIXErrorCode(rawValue: 61): Connection refused)
+2026-04-12 16:08:23.378 ClipSync[14153:166192] ClipSync: conn server state failed(POSIXErrorCode(rawValue: 61): Connection refused)

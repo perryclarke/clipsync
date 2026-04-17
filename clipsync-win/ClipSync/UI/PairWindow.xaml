@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="ClipSync.UI.PairWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Padding="20" Spacing="12">
+        <TextBlock Text="Pair a new device" FontSize="22" FontWeight="Bold"/>
+        <TextBlock Text="On the new device, open ClipSync and enter the PIN shown here."/>
+        <TextBlock x:Name="PinText" FontSize="32" FontFamily="Consolas"/>
+        <TextBlock Text="Or, if this is the new device, enter the PIN from the already-paired device:"/>
+        <TextBox x:Name="PinInput" PlaceholderText="6-digit PIN" MaxLength="6"/>
+        <Button Content="Enroll" Click="OnEnrollClick"/>
+    </StackPanel>
+</Window>

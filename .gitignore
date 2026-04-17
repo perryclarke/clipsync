@@ -1,0 +1,21 @@
+# macOS build artifacts
+clipsync-mac/.build/
+clipsync-mac/Package.resolved
+clipsync-mac/ClipSync.app/
+clipsync-mac/.swiftpm/
+clipsync-mac/*.xcodeproj/
+
+# Windows build artifacts
+clipsync-win/**/bin/
+clipsync-win/**/obj/
+clipsync-win/.vs/
+clipsync-win/packages/
+
+# System
+.DS_Store
+Thumbs.db
+*.swp
+
+# Signing cert blobs (if any get pulled into tree)
+*.cer
+*.p12
