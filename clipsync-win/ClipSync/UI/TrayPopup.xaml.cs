@@ -58,11 +58,14 @@ public sealed partial class TrayPopup : Window
 
     private void Refresh(IReadOnlyList<Peer> peers)
     {
+        _peerCount = peers.Count;
         PeerList.Children.Clear();
         EmptyText.Visibility = peers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        Identity.Log($"Refresh: {peers.Count} peers");
 
         foreach (var peer in peers)
         {
+            Identity.Log($"  peer: {peer.Name} state={peer.State}");
             switch (peer.State)
             {
                 case PeerState.Online:
@@ -102,6 +105,7 @@ public sealed partial class TrayPopup : Window
                     var name = peer.Name;
                     btn.Click += (_, _) =>
                     {
+                        Identity.Log($"Trust clicked: {name} did={did}");
                         App.Current.TrustStore.Add(did, name);
                         App.Current.Discovery.ConnectToPeer(did);
                     };
@@ -132,6 +136,8 @@ public sealed partial class TrayPopup : Window
         }
     }
 
+    private int _peerCount;
+
     private void ShowAtCursor()
     {
         GetCursorPos(out var pt);
@@ -141,20 +147,36 @@ public sealed partial class TrayPopup : Window
             new Windows.Graphics.PointInt32(pt.X, pt.Y),
             DisplayAreaFallback.Primary);
 
-        int w = 320, h = 300;
-        int x = pt.X - w / 2;
-        int y = pt.Y - h;
+        // Scale factor: WinUI uses physical pixels for AppWindow.
+        var dpi = GetDpiForWindow(WindowNative.GetWindowHandle(this));
+        var scale = dpi / 96.0;
 
-        // Clamp to the work area of the display the cursor is on.
+        // Compute height to fit content: header + DID + separator + peers + separator + button + padding.
+        int rows = Math.Max(_peerCount, 1); // at least 1 for "Looking for peers..." text
+        int contentHeight = (int)((24 + 18 + 1 + (rows * 28) + 1 + 36 + 60) * scale);
+        int w = (int)(300 * scale), h = contentHeight;
+
+        // Position: above the taskbar with a gap, centered on cursor X.
         var work = displayArea.WorkArea;
+        int gap = (int)(200 * scale);
+        int x = pt.X - w / 2;
+        int y = work.Y + work.Height - h - gap;
+
+        // Clamp horizontally to work area.
         if (x < work.X) x = work.X;
         if (x + w > work.X + work.Width) x = work.X + work.Width - w;
-        if (y < work.Y) y = work.Y;
-        if (y + h > work.Y + work.Height) y = work.Y + work.Height - h;
 
         _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, w, h));
         Activate();
+        SetForegroundWindow(WindowNative.GetWindowHandle(this));
     }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hwnd);
 
     private void Hide()
     {

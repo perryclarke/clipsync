@@ -24,6 +24,7 @@ public sealed class PeerRegistry
         var key = didHex.ToLowerInvariant();
         var state = trusted ? PeerState.Offline : PeerState.Pending;
         _discovered[key] = new Peer(key, name, state);
+        Security.Identity.Log($"PeerRegistry.OnDiscovered: {name} did={key} trusted={trusted} state={state}");
         Emit();
     }
 
@@ -32,7 +33,7 @@ public sealed class PeerRegistry
         pc.OnItem = item =>
         {
             try { OnRemoteItem?.Invoke(item); }
-            catch { }
+            catch (Exception ex) { Security.Identity.Log($"OnRemoteItem error: {ex.Message}"); }
         };
         pc.OnReady = () =>
         {
@@ -57,8 +58,10 @@ public sealed class PeerRegistry
     {
         var list = new List<Peer>();
         var connected = new HashSet<string>();
+        Security.Identity.Log($"GetAll: _connections.Count={_connections.Count}");
         foreach (var (hex, pc) in _connections)
         {
+            Security.Identity.Log($"  connected: {hex} name={pc.PeerName}");
             list.Add(new Peer(hex, pc.PeerName ?? "Peer", PeerState.Online));
             connected.Add(hex);
         }
@@ -67,6 +70,7 @@ public sealed class PeerRegistry
             if (!connected.Contains(hex))
                 list.Add(peer);
         }
+        Security.Identity.Log($"GetAll: returning {list.Count} peers");
         return list;
     }
 
@@ -89,6 +93,7 @@ public sealed class PeerRegistry
             if (!connected.Contains(hex))
                 list.Add(peer);
         }
+        Security.Identity.Log($"PeerRegistry.Emit: {list.Count} peers, OnChange={OnChange is not null}");
         OnChange?.Invoke(list);
     }
 }
