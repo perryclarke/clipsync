@@ -43,35 +43,37 @@ public sealed class PeerConnection
     {
         try
         {
+            Identity.Log($"PeerConnection.Run: role={_role}, remote={_tcp.Client.RemoteEndPoint}");
             _ssl = new SslStream(_tcp.GetStream(), leaveInnerStreamOpen: false,
                 userCertificateValidationCallback: ValidatePeer);
 
             if (_role == PeerRole.Client)
             {
-                await _ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                var opts = new SslClientAuthenticationOptions
                 {
                     TargetHost = "clipsync",
-                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
                     ClientCertificates = new X509CertificateCollection { _identity.TlsCertificate },
-                    RemoteCertificateValidationCallback = ValidatePeer,
-                });
+                };
+                await _ssl.AuthenticateAsClientAsync(opts);
             }
             else
             {
-                await _ssl.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                var opts = new SslServerAuthenticationOptions
                 {
-                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
                     ServerCertificate = _identity.TlsCertificate,
                     ClientCertificateRequired = true,
-                    RemoteCertificateValidationCallback = ValidatePeer,
-                });
+                };
+                await _ssl.AuthenticateAsServerAsync(opts);
             }
 
+            Identity.Log($"PeerConnection: TLS handshake complete, role={_role}");
             await SendHelloAsync();
-            OnReady?.Invoke();
             await ReadLoopAsync();
         }
-        catch { /* close below */ }
+        catch (Exception ex)
+        {
+            Identity.Log($"PeerConnection error ({_role}): {ex.GetType().Name}: {ex.Message}");
+        }
         finally
         {
             try { _ssl?.Dispose(); _tcp.Dispose(); } catch { }
@@ -81,16 +83,17 @@ public sealed class PeerConnection
 
     private bool ValidatePeer(object? _, X509Certificate? cert, X509Chain? __, SslPolicyErrors ___)
     {
-        if (cert is null) return false;
+        if (cert is null)
+        {
+            Identity.Log("ValidatePeer: cert is null → reject");
+            return false;
+        }
         var leaf = cert is X509Certificate2 c2 ? c2 : new X509Certificate2(cert);
-        var spki = SpkiSha256(leaf);
-        return _trust.Contains(spki);
-    }
-
-    private static byte[] SpkiSha256(X509Certificate2 cert)
-    {
-        var pk = cert.PublicKey.EncodedKeyValue.RawData;
-        return SHA256.HashData(pk);
+        var did = Identity.ComputeDid(leaf);
+        var hex = Convert.ToHexString(did).ToLowerInvariant();
+        var trusted = _trust.Contains(hex);
+        Identity.Log($"ValidatePeer: peer did={hex}, trusted={trusted}");
+        return trusted;
     }
 
     public async Task SendAsync(byte[] frame)
@@ -141,6 +144,8 @@ public sealed class PeerConnection
             case MessageType.Hello:
                 PeerDid = body["did"].GetByteString();
                 PeerName = body.ContainsKey("name") ? body["name"].AsString() : null;
+                Identity.Log($"Hello from: name={PeerName}, did={Convert.ToHexString(PeerDid).ToLowerInvariant()}");
+                OnReady?.Invoke();
                 break;
             case MessageType.ClipboardItem:
                 var item = Codec.DecodeClipboardItem(body);

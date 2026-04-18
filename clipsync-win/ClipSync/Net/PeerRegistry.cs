@@ -14,13 +14,27 @@ public sealed class PeerRegistry
     public Action<IReadOnlyList<Peer>>? OnChange;
 
     private readonly ConcurrentDictionary<string, PeerConnection> _connections = new();
-    private readonly ConcurrentDictionary<string, Peer> _pending = new();
+    private readonly ConcurrentDictionary<string, Peer> _discovered = new();
 
-    public bool IsConnected(string didHex) => _connections.ContainsKey(didHex);
+    public bool IsConnected(string didHex) => _connections.ContainsKey(didHex.ToLowerInvariant());
+
+    /// Called by Discovery whenever a service instance is seen on the network.
+    public void OnDiscovered(string didHex, string name, bool trusted)
+    {
+        var key = didHex.ToLowerInvariant();
+        var state = trusted ? PeerState.Offline : PeerState.Pending;
+        _discovered[key] = new Peer(key, name, state);
+        Security.Identity.Log($"PeerRegistry.OnDiscovered: {name} did={key} trusted={trusted} state={state}");
+        Emit();
+    }
 
     public void Adopt(PeerConnection pc)
     {
-        pc.OnItem = item => OnRemoteItem?.Invoke(item);
+        pc.OnItem = item =>
+        {
+            try { OnRemoteItem?.Invoke(item); }
+            catch (Exception ex) { Security.Identity.Log($"OnRemoteItem error: {ex.Message}"); }
+        };
         pc.OnReady = () =>
         {
             if (pc.PeerDid is { } did)
@@ -40,6 +54,26 @@ public sealed class PeerRegistry
         };
     }
 
+    public IReadOnlyList<Peer> GetAll()
+    {
+        var list = new List<Peer>();
+        var connected = new HashSet<string>();
+        Security.Identity.Log($"GetAll: _connections.Count={_connections.Count}");
+        foreach (var (hex, pc) in _connections)
+        {
+            Security.Identity.Log($"  connected: {hex} name={pc.PeerName}");
+            list.Add(new Peer(hex, pc.PeerName ?? "Peer", PeerState.Online));
+            connected.Add(hex);
+        }
+        foreach (var (hex, peer) in _discovered)
+        {
+            if (!connected.Contains(hex))
+                list.Add(peer);
+        }
+        Security.Identity.Log($"GetAll: returning {list.Count} peers");
+        return list;
+    }
+
     public void Broadcast(ClipboardItem item)
     {
         foreach (var pc in _connections.Values) _ = pc.SendItemAsync(item);
@@ -48,9 +82,18 @@ public sealed class PeerRegistry
     private void Emit()
     {
         var list = new List<Peer>();
+        var connected = new HashSet<string>();
         foreach (var (hex, pc) in _connections)
+        {
             list.Add(new Peer(hex, pc.PeerName ?? "Peer", PeerState.Online));
-        list.AddRange(_pending.Values.Where(p => !_connections.ContainsKey(p.DidHex)));
+            connected.Add(hex);
+        }
+        foreach (var (hex, peer) in _discovered)
+        {
+            if (!connected.Contains(hex))
+                list.Add(peer);
+        }
+        Security.Identity.Log($"PeerRegistry.Emit: {list.Count} peers, OnChange={OnChange is not null}");
         OnChange?.Invoke(list);
     }
 }

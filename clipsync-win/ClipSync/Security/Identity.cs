@@ -15,7 +15,7 @@ public sealed class Identity
 {
     public static Identity Current { get; private set; } = null!;
 
-    public byte[] Did { get; }              // SPKI SHA-256 of TLS cert
+    public byte[] Did { get; }              // SHA-256 of EC public key x963 bytes
     public string DidHex => Convert.ToHexString(Did).ToLowerInvariant();
     public X509Certificate2 TlsCertificate { get; }
     public Ed25519PrivateKeyParameters Ed25519Private { get; }
@@ -23,6 +23,17 @@ public sealed class Identity
     private Identity(byte[] did, X509Certificate2 cert, Ed25519PrivateKeyParameters ed)
     {
         Did = did; TlsCertificate = cert; Ed25519Private = ed;
+    }
+
+    /// Compute the DID the same way the mac does: SHA-256 of the raw EC
+    /// public key bytes (x963 uncompressed point, 65 bytes for P-256).
+    /// On .NET, PublicKey.EncodedKeyValue.RawData for ECDSA contains the
+    /// uncompressed point bytes — same as SecKeyCopyExternalRepresentation.
+    public static byte[] ComputeDid(X509Certificate2 cert)
+    {
+        var raw = cert.PublicKey.EncodedKeyValue.RawData;
+        Log($"ComputeDid: raw key bytes ({raw.Length}): {Convert.ToHexString(raw)}");
+        return SHA256.HashData(raw);
     }
 
     public static Identity LoadOrCreate()
@@ -36,8 +47,8 @@ public sealed class Identity
         if (File.Exists(pfxPath))
         {
             var blob = ProtectedData.Unprotect(File.ReadAllBytes(pfxPath), null, DataProtectionScope.CurrentUser);
-            cert = new X509Certificate2(blob, (string?)null,
-                X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.Exportable);
+            cert = X509CertificateLoader.LoadPkcs12(blob, null,
+                X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable);
         }
         else
         {
@@ -62,9 +73,10 @@ public sealed class Identity
                 ProtectedData.Protect(ed.GetEncoded(), null, DataProtectionScope.CurrentUser));
         }
 
-        var spki = SHA256.HashData(cert.PublicKey.EncodedKeyValue.RawData);
-        var id = new Identity(spki, cert, ed);
+        var did = ComputeDid(cert);
+        var id = new Identity(did, cert, ed);
         Current = id;
+        Log($"Identity loaded: did={id.DidHex}");
         return id;
     }
 
@@ -74,7 +86,17 @@ public sealed class Identity
         var req = new CertificateRequest("CN=clipsync", ecdsa, HashAlgorithmName.SHA256);
         var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1),
                                         DateTimeOffset.UtcNow.AddYears(20));
-        return new X509Certificate2(cert.Export(X509ContentType.Pfx), (string?)null,
-            X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.Exportable);
+        return X509CertificateLoader.LoadPkcs12(cert.Export(X509ContentType.Pfx), null,
+            X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable);
+    }
+
+    internal static void Log(string msg)
+    {
+        try
+        {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClipSync");
+            File.AppendAllText(Path.Combine(dir, "debug.log"), $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
+        }
+        catch { }
     }
 }
