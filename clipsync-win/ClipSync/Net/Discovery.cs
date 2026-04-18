@@ -66,8 +66,6 @@ public sealed class Discovery
             if (srv is not null && addr is not null)
                 _endpoints[key] = (addr, srv.Port);
 
-            Identity.Log($"Discovery: peer name={name} did={key} addr={addr} port={srv?.Port}");
-
             // Always register so the UI can show Trust buttons.
             _peers.OnDiscovered(key, name, _trust.Contains(key));
 
@@ -85,12 +83,7 @@ public sealed class Discovery
         var key = didHex.ToLowerInvariant();
         if (_peers.IsConnected(key)) return;
         if (_endpoints.TryGetValue(key, out var ep))
-        {
-            Identity.Log($"ConnectToPeer: {key} → {ep.Addr}:{ep.Port}");
             _ = ConnectAsync(ep.Addr, ep.Port);
-        }
-        else
-            Identity.Log($"ConnectToPeer: no cached endpoint for {key}");
         // Also re-query in case the cache is stale.
         _sd?.QueryServiceInstances("_clipsync._tcp");
     }

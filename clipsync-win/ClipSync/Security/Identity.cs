@@ -31,9 +31,7 @@ public sealed class Identity
     /// uncompressed point bytes — same as SecKeyCopyExternalRepresentation.
     public static byte[] ComputeDid(X509Certificate2 cert)
     {
-        var raw = cert.PublicKey.EncodedKeyValue.RawData;
-        Log($"ComputeDid: raw key bytes ({raw.Length}): {Convert.ToHexString(raw)}");
-        return SHA256.HashData(raw);
+        return SHA256.HashData(cert.PublicKey.EncodedKeyValue.RawData);
     }
 
     public static Identity LoadOrCreate()
@@ -76,7 +74,6 @@ public sealed class Identity
         var did = ComputeDid(cert);
         var id = new Identity(did, cert, ed);
         Current = id;
-        Log($"Identity loaded: did={id.DidHex}");
         return id;
     }
 
@@ -88,15 +85,5 @@ public sealed class Identity
                                         DateTimeOffset.UtcNow.AddYears(20));
         return X509CertificateLoader.LoadPkcs12(cert.Export(X509ContentType.Pfx), null,
             X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable);
-    }
-
-    internal static void Log(string msg)
-    {
-        try
-        {
-            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClipSync");
-            File.AppendAllText(Path.Combine(dir, "debug.log"), $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
-        }
-        catch { }
     }
 }

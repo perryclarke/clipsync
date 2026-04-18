@@ -5,7 +5,6 @@ using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage.Streams;
 using WinClipboard = Windows.ApplicationModel.DataTransfer.Clipboard;
 using ClipSync.Net;
-using ClipSync.Security;
 
 namespace ClipSync.Clipboard;
 
@@ -48,9 +47,6 @@ public sealed class ClipboardWriter
                         hasContent = true;
                         break;
                     default:
-                        // Skip unsupported MIME types — DataPackage.SetData
-                        // only accepts WinRT-compatible values.
-                        Identity.Log($"ClipboardWriter: skipping unsupported mime={f.Mime}");
                         break;
                 }
             }
@@ -69,18 +65,11 @@ public sealed class ClipboardWriter
                 {
                     WinClipboard.SetContent(pkg);
                     WinClipboard.Flush();
-                    Identity.Log($"ClipboardWriter: applied item seq={item.Seq} hint={item.Hint}");
                 }
-                catch (Exception ex2)
-                {
-                    Identity.Log($"ClipboardWriter dispatch error: {ex2.GetType().Name}: {ex2.Message}");
-                }
+                catch { }
             });
         }
-        catch (Exception ex)
-        {
-            Identity.Log($"ClipboardWriter.Apply error: {ex.GetType().Name}: {ex.Message} HResult=0x{ex.HResult:X8}");
-        }
+        catch { }
     }
 
     public bool ConsumeRecentWrite(byte[] hash)

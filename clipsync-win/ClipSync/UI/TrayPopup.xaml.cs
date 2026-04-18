@@ -60,11 +60,9 @@ public sealed partial class TrayPopup : Window
     {
         PeerList.Children.Clear();
         EmptyText.Visibility = peers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        Identity.Log($"Refresh: {peers.Count} peers");
 
         foreach (var peer in peers)
         {
-            Identity.Log($"  peer: {peer.Name} state={peer.State}");
             switch (peer.State)
             {
                 case PeerState.Online:
@@ -104,7 +102,6 @@ public sealed partial class TrayPopup : Window
                     var name = peer.Name;
                     btn.Click += (_, _) =>
                     {
-                        Identity.Log($"Trust clicked: {name} did={did}");
                         App.Current.TrustStore.Add(did, name);
                         App.Current.Discovery.ConnectToPeer(did);
                     };
