@@ -4,6 +4,7 @@ clipsync-mac/Package.resolved
 clipsync-mac/ClipSync.app/
 clipsync-mac/.swiftpm/
 clipsync-mac/*.xcodeproj/
+dist/
 
 # Windows build artifacts
 clipsync-win/**/bin/
