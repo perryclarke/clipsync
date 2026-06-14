@@ -32,7 +32,6 @@ public sealed class Identity
     public static byte[] ComputeDid(X509Certificate2 cert)
     {
         var raw = cert.PublicKey.EncodedKeyValue.RawData;
-        Log($"ComputeDid: raw key bytes ({raw.Length}): {Convert.ToHexString(raw)}");
         return SHA256.HashData(raw);
     }
 
@@ -90,12 +89,28 @@ public sealed class Identity
             X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable);
     }
 
+    /// Diagnostic logging is opt-in (set CLIPSYNC_DEBUG=1 or create a
+    /// `debug-enabled` file next to the log) and must never include
+    /// clipboard content or key material — only network/protocol metadata.
+    private static readonly object LogLock = new();
+    private static bool? _logEnabled;
+
     internal static void Log(string msg)
     {
         try
         {
             var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClipSync");
-            File.AppendAllText(Path.Combine(dir, "debug.log"), $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
+            _logEnabled ??= Environment.GetEnvironmentVariable("CLIPSYNC_DEBUG") == "1"
+                            || File.Exists(Path.Combine(dir, "debug-enabled"));
+            if (_logEnabled != true) return;
+            lock (LogLock)
+            {
+                var path = Path.Combine(dir, "debug.log");
+                var fi = new FileInfo(path);
+                if (fi.Exists && fi.Length > 5_000_000)
+                    File.Move(path, Path.Combine(dir, "debug.log.1"), overwrite: true);
+                File.AppendAllText(path, $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
+            }
         }
         catch { }
     }

@@ -69,7 +69,7 @@ public sealed class ClipboardWriter
                 {
                     WinClipboard.SetContent(pkg);
                     WinClipboard.Flush();
-                    Identity.Log($"ClipboardWriter: applied item seq={item.Seq} hint={item.Hint}");
+                    Identity.Log($"ClipboardWriter: applied item seq={item.Seq}");
                 }
                 catch (Exception ex2)
                 {

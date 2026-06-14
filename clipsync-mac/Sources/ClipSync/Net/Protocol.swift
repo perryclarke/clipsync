@@ -83,6 +83,14 @@ enum Codec {
         ])
     }
 
+    static func encodePing() -> Data {
+        encode(["t": .unsignedInt(UInt64(MessageType.ping.rawValue))])
+    }
+
+    static func encodePong() -> Data {
+        encode(["t": .unsignedInt(UInt64(MessageType.pong.rawValue))])
+    }
+
     static func encodeClipboardItem(_ item: ClipboardItem) -> Data {
         var formats: [CBOR] = []
         for f in item.formats {

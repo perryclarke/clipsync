@@ -11,6 +11,7 @@ clipsync-win/**/bin/
 clipsync-win/**/obj/
 clipsync-win/.vs/
 clipsync-win/packages/
+clipsync-win/publish/
 
 # System
 .DS_Store

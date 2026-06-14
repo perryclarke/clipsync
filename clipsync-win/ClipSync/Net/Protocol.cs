@@ -84,6 +84,20 @@ public static class Codec
         return Frame(o);
     }
 
+    public static byte[] EncodePing()
+    {
+        var o = CBORObject.NewMap();
+        o.Add("t", (int)MessageType.Ping);
+        return Frame(o);
+    }
+
+    public static byte[] EncodePong()
+    {
+        var o = CBORObject.NewMap();
+        o.Add("t", (int)MessageType.Pong);
+        return Frame(o);
+    }
+
     public static byte[] EncodeClipboardItem(ClipboardItem item)
     {
         var o = CBORObject.NewMap();

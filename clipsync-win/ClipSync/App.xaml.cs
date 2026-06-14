@@ -29,7 +29,7 @@ public partial class App : Application
             UIDispatcher = DispatcherQueue.GetForCurrentThread();
             Identity = Identity.LoadOrCreate();
             TrustStore = TrustStore.Load();
-            Peers = new PeerRegistry();
+            Peers = new PeerRegistry(Identity.DidHex);
             Writer = new ClipboardWriter();
             Watcher = new ClipboardWatcher(Writer);
             Discovery = new Discovery(Identity, TrustStore, Peers);

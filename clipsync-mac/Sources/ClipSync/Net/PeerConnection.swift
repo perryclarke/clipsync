@@ -17,6 +17,14 @@ final class PeerConnection {
     private(set) var peerDid: Data?
     private(set) var peerName: String?
 
+    private var keepaliveTimer: Timer?
+    private var lastReceive = Date()
+    private var becameReady = false
+
+    private static let pingInterval: TimeInterval = 20
+    private static let idleTimeout: TimeInterval = 75
+    private static let readyTimeout: TimeInterval = 15
+
     init(connection: NWConnection, identity: Identity, trustStore: TrustStore, role: PeerRole) {
         self.connection = connection
         self.identity = identity
@@ -30,14 +38,27 @@ final class PeerConnection {
             self.onLog?("conn \(self.role) state \(state)")
             switch state {
             case .ready:
+                self.becameReady = true
+                self.lastReceive = Date()
                 self.sendHello()
                 self.readLoop()
+                self.startKeepalive()
             case .failed, .cancelled:
+                self.keepaliveTimer?.invalidate()
+                self.keepaliveTimer = nil
                 self.onClose?()
             default: break
             }
         }
         connection.start(queue: .main)
+
+        // Give up on connections that never become ready (stale address,
+        // peer asleep) so discovery can retry with a fresh endpoint.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.readyTimeout) { [weak self] in
+            guard let self, !self.becameReady else { return }
+            self.onLog?("conn \(self.role) timed out before ready")
+            self.connection.cancel()
+        }
     }
 
     func send(_ frame: Data) {
@@ -52,6 +73,22 @@ final class PeerConnection {
         send(f)
     }
 
+    /// App-level keepalive: detects dead links (sleep, AP roam) that TCP
+    /// alone takes minutes to notice, so the registry stays accurate and
+    /// the reconnect path can kick in.
+    private func startKeepalive() {
+        keepaliveTimer?.invalidate()
+        keepaliveTimer = Timer.scheduledTimer(withTimeInterval: Self.pingInterval, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if Date().timeIntervalSince(self.lastReceive) > Self.idleTimeout {
+                self.onLog?("keepalive timeout, closing \(self.peerName ?? "?")")
+                self.close()
+                return
+            }
+            self.send(Codec.encodePing())
+        }
+    }
+
     // MARK: - Framed read loop
 
     private var inbox = Data()
@@ -59,7 +96,11 @@ final class PeerConnection {
     private func readLoop() {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, finished, error in
             guard let self else { return }
-            if let data { self.inbox.append(data); self.drain() }
+            if let data {
+                self.lastReceive = Date()
+                self.inbox.append(data)
+                self.drain()
+            }
             if error != nil || finished { self.connection.cancel(); return }
             self.readLoop()
         }
@@ -93,10 +134,18 @@ final class PeerConnection {
             onReady?()
         case .clipboardItem:
             if let item = Codec.decodeClipboardItem(cbor) { onItem?(item) }
+        case .ping:
+            send(Codec.encodePong())
+        case .pong:
+            break
         default:
             break
         }
     }
 
-    func close() { connection.cancel() }
+    func close() {
+        keepaliveTimer?.invalidate()
+        keepaliveTimer = nil
+        connection.cancel()
+    }
 }

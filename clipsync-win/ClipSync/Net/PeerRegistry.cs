@@ -15,6 +15,9 @@ public sealed class PeerRegistry
 
     private readonly ConcurrentDictionary<string, PeerConnection> _connections = new();
     private readonly ConcurrentDictionary<string, Peer> _discovered = new();
+    private readonly string _localDidHex;
+
+    public PeerRegistry(string localDidHex) { _localDidHex = localDidHex; }
 
     public bool IsConnected(string didHex) => _connections.ContainsKey(didHex.ToLowerInvariant());
 
@@ -37,20 +40,45 @@ public sealed class PeerRegistry
         };
         pc.OnReady = () =>
         {
-            if (pc.PeerDid is { } did)
+            if (pc.PeerDid is not { } did) return;
+            var hex = Convert.ToHexString(did).ToLowerInvariant();
+            while (true)
             {
-                var hex = Convert.ToHexString(did).ToLowerInvariant();
-                _connections[hex] = pc;
-                Emit();
+                if (_connections.TryAdd(hex, pc)) break;
+                if (!_connections.TryGetValue(hex, out var existing)) continue;
+                if (ReferenceEquals(existing, pc)) break;
+                // Simultaneous connect from both sides. Both ends must keep
+                // the *same* connection, so tie-break deterministically:
+                // keep the one where the lower-DID device is the TLS client.
+                var keepClient = string.CompareOrdinal(_localDidHex, hex) < 0;
+                if ((pc.Role == PeerRole.Client) == keepClient)
+                {
+                    if (_connections.TryUpdate(hex, pc, existing))
+                    {
+                        Security.Identity.Log($"PeerRegistry: replacing duplicate connection for {hex}");
+                        existing.Close();
+                        break;
+                    }
+                }
+                else
+                {
+                    Security.Identity.Log($"PeerRegistry: dropping duplicate connection for {hex}");
+                    pc.Close();
+                    return;
+                }
             }
+            Emit();
         };
         pc.OnClose = () =>
         {
             if (pc.PeerDid is { } did)
             {
-                _connections.TryRemove(Convert.ToHexString(did).ToLowerInvariant(), out _);
-                Emit();
+                var hex = Convert.ToHexString(did).ToLowerInvariant();
+                // Only remove if this pc is still the registered connection —
+                // a replaced duplicate must not evict its successor.
+                _connections.TryRemove(new KeyValuePair<string, PeerConnection>(hex, pc));
             }
+            Emit();
         };
     }
 

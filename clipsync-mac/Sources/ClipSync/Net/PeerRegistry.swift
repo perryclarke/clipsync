@@ -19,6 +19,8 @@ final class PeerRegistry {
     /// wires this up to persist to the trust store and kick off a
     /// real mTLS connect using the saved endpoint.
     var onTrustRequested: ((String, String, NWEndpoint) -> Void)?
+    /// Our own DID hex, used to break ties when both sides connect at once.
+    var localDidHex: String = ""
 
     private var connections: [String: PeerConnection] = [:]       // didHex → live mTLS conn
     private var pending: [String: (peer: Peer, endpoint: NWEndpoint)] = [:]
@@ -32,21 +34,33 @@ final class PeerRegistry {
     private func registerReady(_ pc: PeerConnection) {
         guard let did = pc.peerDid else { return }
         let hex = did.map { String(format: "%02x", $0) }.joined()
-        connections[hex] = pc
+        if let existing = connections[hex], existing !== pc {
+            // Simultaneous connect from both sides. Both ends must keep the
+            // *same* connection, so tie-break deterministically: keep the
+            // one where the lower-DID device is the TLS client.
+            let keepClient = localDidHex < hex
+            if (pc.role == .client) == keepClient {
+                connections[hex] = pc
+                existing.close()
+            } else {
+                pc.close()
+                return
+            }
+        } else {
+            connections[hex] = pc
+        }
         pending.removeValue(forKey: hex)
-        onPeerConnected?(hex, pc.peerName ?? "Peer")
         emit()
     }
-
-    /// Fired when an mTLS connection completes Hello — Discovery uses
-    /// this to promote the peer from the ephemeral pending set into the
-    /// persistent TrustStore so future launches auto-connect.
-    var onPeerConnected: ((String, String) -> Void)?
 
     private func unregister(_ pc: PeerConnection) {
         if let did = pc.peerDid {
             let hex = did.map { String(format: "%02x", $0) }.joined()
-            connections.removeValue(forKey: hex)
+            // Only remove if this pc is still the registered connection —
+            // a replaced duplicate must not evict its successor.
+            if connections[hex] === pc {
+                connections.removeValue(forKey: hex)
+            }
         }
         emit()
     }

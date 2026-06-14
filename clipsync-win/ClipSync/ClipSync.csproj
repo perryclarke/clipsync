@@ -14,7 +14,12 @@
     <LangVersion>latest</LangVersion>
     <WindowsPackageType>None</WindowsPackageType>
     <DefineConstants>DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\AppIcon.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />

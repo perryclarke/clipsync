@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 using Makaretu.Dns;
 using ClipSync.Security;
@@ -17,9 +21,16 @@ public sealed class Discovery
     private readonly PeerRegistry _peers;
     private ServiceDiscovery? _sd;
     private TcpListener? _listener;
+    private int _port;
+    private int _restartPending;
 
-    /// Cache endpoint info so we can connect after the user clicks Trust.
-    private readonly ConcurrentDictionary<string, (IPAddress Addr, int Port)> _endpoints = new();
+    /// All usable addresses a peer advertised, tried in order on connect.
+    private sealed record Endpoint(IReadOnlyList<IPAddress> Addresses, int Port, string SrvTarget);
+
+    /// Cache endpoint info so we can connect after the user clicks Trust
+    /// and retry from the maintenance loop without waiting for mDNS.
+    private readonly ConcurrentDictionary<string, Endpoint> _endpoints = new();
+    private readonly ConcurrentDictionary<string, byte> _connecting = new();
 
     public Discovery(Identity identity, TrustStore trust, PeerRegistry peers)
     {
@@ -33,88 +44,126 @@ public sealed class Discovery
         _listener = new TcpListener(IPAddress.IPv6Any, 0);
         _listener.Server.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
         _listener.Start();
-        var port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+        _port = ((IPEndPoint)_listener.LocalEndpoint).Port;
         _ = AcceptLoop();
 
-        _sd = new ServiceDiscovery();
-        var profile = new ServiceProfile(Environment.MachineName, "_clipsync._tcp", (ushort)port);
+        StartMdns();
+
+        // mDNS sockets go stale after sleep/wake or a Wi-Fi switch;
+        // rebuild advertise+browse whenever the network changes.
+        NetworkChange.NetworkAddressChanged += (_, _) => ScheduleMdnsRestart("address change");
+        NetworkChange.NetworkAvailabilityChanged += (_, _) => ScheduleMdnsRestart("availability change");
+
+        _ = MaintenanceLoop();
+    }
+
+    private void StartMdns()
+    {
+        var sd = new ServiceDiscovery();
+        var profile = new ServiceProfile(Environment.MachineName, "_clipsync._tcp", (ushort)_port);
         profile.AddProperty("v", "1");
         profile.AddProperty("did", _identity.DidHex);
         profile.AddProperty("name", Environment.MachineName);
         profile.AddProperty("caps", "text,image,files,rich");
         profile.AddProperty("pend", _trust.IsEmpty ? "1" : "0");
-        _sd.Advertise(profile);
+        sd.Advertise(profile);
+        try { sd.Announce(profile); } catch { /* unsolicited announce is best-effort */ }
 
-        _sd.ServiceInstanceDiscovered += (_, e) =>
-        {
-            if (e.ServiceInstanceName.ToString().StartsWith(Environment.MachineName)) return;
+        sd.ServiceInstanceDiscovered += (_, e) => OnInstanceDiscovered(e.ServiceInstanceName.ToString(), e.Message);
+        sd.QueryServiceInstances("_clipsync._tcp");
+        _sd = sd;
+        Identity.Log($"Discovery: mDNS started, advertising port {_port}");
+    }
 
-            var didHex = TryReadProperty(e.Message, "did");
-            var name = TryReadProperty(e.Message, "name") ?? e.ServiceInstanceName.ToString();
-
-            if (didHex is null) return;
-            var key = didHex.ToLowerInvariant();
-
-            // Cache the endpoint for later Trust-then-connect.
-            var srv = FindSrv(e.Message);
-            IPAddress? addr = null;
-            foreach (var rr in e.Message.AdditionalRecords)
-            {
-                if (rr is AAAARecord aaaa) { addr = aaaa.Address; break; }
-                if (rr is ARecord a) { addr = a.Address; break; }
-            }
-            if (srv is not null && addr is not null)
-                _endpoints[key] = (addr, srv.Port);
-
-            Identity.Log($"Discovery: peer name={name} did={key} addr={addr} port={srv?.Port}");
-
-            // Always register so the UI can show Trust buttons.
-            _peers.OnDiscovered(key, name, _trust.Contains(key));
-
-            if (!_trust.Contains(key)) return;
-            if (_peers.IsConnected(key)) return;
-            if (addr is not null && srv is not null)
-                _ = ConnectAsync(addr, srv.Port);
-        };
-        _sd.QueryServiceInstances("_clipsync._tcp");
-
-        // Re-query periodically so we pick up peers that appeared after startup.
+    private void ScheduleMdnsRestart(string reason)
+    {
+        if (Interlocked.Exchange(ref _restartPending, 1) == 1) return;
         _ = Task.Run(async () =>
         {
-            while (true)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(30));
-                try { _sd?.QueryServiceInstances("_clipsync._tcp"); } catch { }
-            }
+            await Task.Delay(TimeSpan.FromSeconds(2));   // debounce bursts of change events
+            Interlocked.Exchange(ref _restartPending, 0);
+            Identity.Log($"Discovery: restarting mDNS ({reason})");
+            try { _sd?.Dispose(); } catch { }
+            try { StartMdns(); }
+            catch (Exception ex) { Identity.Log($"Discovery: mDNS restart failed: {ex.Message}"); }
         });
+    }
+
+    private void OnInstanceDiscovered(string svcName, Message msg)
+    {
+        if (!svcName.Contains("_clipsync._tcp")) return;
+
+        var didHex = TryReadProperty(msg, "did");
+        if (didHex is null) return;
+        var key = didHex.ToLowerInvariant();
+        if (key == _identity.DidHex) return;   // self
+
+        var name = TryReadProperty(msg, "name") ?? svcName;
+
+        // Responders may put SRV/TXT/A/AAAA in either section.
+        var records = msg.Answers.Concat(msg.AdditionalRecords).ToList();
+        var srv = records.OfType<SRVRecord>().FirstOrDefault();
+        if (srv is not null)
+        {
+            var addrs = CollectAddresses(records);
+            if (addrs.Count > 0 || !_endpoints.ContainsKey(key))
+                _endpoints[key] = new Endpoint(addrs, srv.Port, srv.Target.ToString());
+        }
+
+        Identity.Log($"Discovery: peer name={name} did={key} port={srv?.Port} " +
+                     $"addrs=[{string.Join(",", _endpoints.TryGetValue(key, out var ep) ? ep.Addresses : Array.Empty<IPAddress>())}]");
+
+        // Always register so the UI can show Trust buttons.
+        _peers.OnDiscovered(key, name, _trust.Contains(key));
+
+        if (_trust.Contains(key))
+            TryConnect(key);
     }
 
     /// Called after the user clicks Trust — try to connect using cached endpoint.
     public void ConnectToPeer(string didHex)
     {
-        var key = didHex.ToLowerInvariant();
-        if (_peers.IsConnected(key)) return;
-        if (_endpoints.TryGetValue(key, out var ep))
-        {
-            Identity.Log($"ConnectToPeer: {key} → {ep.Addr}:{ep.Port}");
-            _ = ConnectAsync(ep.Addr, ep.Port);
-        }
-        else
-            Identity.Log($"ConnectToPeer: no cached endpoint for {key}");
-        // Also re-query in case the cache is stale.
-        _sd?.QueryServiceInstances("_clipsync._tcp");
+        TryConnect(didHex.ToLowerInvariant());
+        try { _sd?.QueryServiceInstances("_clipsync._tcp"); } catch { }
     }
 
-    private static SRVRecord? FindSrv(Message msg)
+    private void TryConnect(string key)
     {
-        foreach (var rr in msg.AdditionalRecords)
-            if (rr is SRVRecord srv) return srv;
-        return null;
+        if (_peers.IsConnected(key)) return;
+        if (!_endpoints.TryGetValue(key, out var ep))
+        {
+            Identity.Log($"TryConnect: no cached endpoint for {key}");
+            return;
+        }
+        if (!_connecting.TryAdd(key, 0)) return;   // already attempting
+        _ = ConnectAsync(key, ep);
+    }
+
+    /// Keep IPv4 (excluding loopback/APIPA) and routable IPv6. Link-local
+    /// IPv6 is skipped: mDNS gives no scope ID, so it isn't connectable.
+    private static List<IPAddress> CollectAddresses(IEnumerable<ResourceRecord> records)
+    {
+        var v4 = new List<IPAddress>();
+        var v6 = new List<IPAddress>();
+        foreach (var rr in records)
+        {
+            switch (rr)
+            {
+                case ARecord a when !IPAddress.IsLoopback(a.Address):
+                    var b = a.Address.GetAddressBytes();
+                    if (!(b[0] == 169 && b[1] == 254)) v4.Add(a.Address);
+                    break;
+                case AAAARecord aaaa when !IPAddress.IsLoopback(aaaa.Address) && !aaaa.Address.IsIPv6LinkLocal:
+                    v6.Add(aaaa.Address);
+                    break;
+            }
+        }
+        return v4.Concat(v6).Distinct().ToList();
     }
 
     private static string? TryReadProperty(Message msg, string key)
     {
-        foreach (var rr in msg.AdditionalRecords)
+        foreach (var rr in msg.Answers.Concat(msg.AdditionalRecords))
         {
             if (rr is TXTRecord txt)
             {
@@ -126,6 +175,29 @@ public sealed class Discovery
             }
         }
         return null;
+    }
+
+    /// Periodically retry trusted peers that aren't connected (failed
+    /// connects, dropped links, peers that woke from sleep) and re-query
+    /// mDNS so the endpoint cache stays fresh.
+    private async Task MaintenanceLoop()
+    {
+        var tick = 0;
+        while (true)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15));
+            tick++;
+            try
+            {
+                foreach (var entry in _trust.All())
+                {
+                    var key = entry.DidHex.ToLowerInvariant();
+                    if (!_peers.IsConnected(key)) TryConnect(key);
+                }
+                if (tick % 2 == 0) _sd?.QueryServiceInstances("_clipsync._tcp");
+            }
+            catch (Exception ex) { Identity.Log($"Discovery: maintenance error: {ex.Message}"); }
+        }
     }
 
     private async Task AcceptLoop()
@@ -143,16 +215,54 @@ public sealed class Discovery
         }
     }
 
-    private async Task ConnectAsync(IPAddress addr, int port)
+    private async Task ConnectAsync(string key, Endpoint ep)
     {
         try
         {
-            var c = new TcpClient(addr.AddressFamily);
-            await c.ConnectAsync(addr, port);
-            var pc = new PeerConnection(c, _identity, _trust, PeerRole.Client);
-            _peers.Adopt(pc);
-            pc.Start();
+            var addrs = new List<IPAddress>(ep.Addresses);
+            if (addrs.Count == 0 && ep.SrvTarget.Length > 0)
+            {
+                // No A/AAAA records came with the mDNS response; Windows
+                // resolves .local names via the OS mDNS responder.
+                try
+                {
+                    var resolved = await Dns.GetHostAddressesAsync(ep.SrvTarget.TrimEnd('.'));
+                    foreach (var a in resolved)
+                    {
+                        if (IPAddress.IsLoopback(a) || a.IsIPv6LinkLocal) continue;
+                        addrs.Add(a);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Identity.Log($"ConnectAsync: resolving {ep.SrvTarget} failed: {ex.Message}");
+                }
+            }
+
+            foreach (var addr in addrs)
+            {
+                if (_peers.IsConnected(key)) return;
+                TcpClient? c = null;
+                try
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    c = new TcpClient(addr.AddressFamily);
+                    await c.ConnectAsync(addr, ep.Port, cts.Token);
+                    var pc = new PeerConnection(c, _identity, _trust, PeerRole.Client);
+                    _peers.Adopt(pc);
+                    pc.Start();
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    c?.Dispose();
+                    Identity.Log($"ConnectAsync: {addr}:{ep.Port} failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
         }
-        catch { /* will retry on next discovery */ }
+        finally
+        {
+            _connecting.TryRemove(key, out _);
+        }
     }
 }

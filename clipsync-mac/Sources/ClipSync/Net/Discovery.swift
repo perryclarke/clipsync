@@ -10,6 +10,10 @@ final class Discovery {
 
     private var listener: NWListener?
     private var browser: NWBrowser?
+    private var reconnectTimer: Timer?
+    /// Peers we currently have an in-flight connect attempt to, so the
+    /// browse handler and the reconnect timer don't double-dial.
+    private var connecting: Set<String> = []
 
     /// Fired for every diagnostic event so the UI (and NSLog) can
     /// surface what discovery is actually doing.
@@ -22,26 +26,34 @@ final class Discovery {
     }
 
     func start() {
+        peers.localDidHex = identity.didHex
         peers.onTrustRequested = { [weak self] didHex, name, endpoint in
             guard let self else { return }
             self.log("trust \(name) \(didHex.prefix(8))")
             self.trustStore.add(didHex: didHex, name: name)
-            self.connect(to: endpoint)
-        }
-        peers.onPeerConnected = { [weak self] didHex, name in
-            guard let self else { return }
-            if !self.trustStore.contains(hex: didHex) {
-                self.log("promoting \(name) \(didHex.prefix(8)) to persistent trust")
-                self.trustStore.add(didHex: didHex, name: name)
-            }
+            self.connect(to: endpoint, didHex: didHex)
         }
         startListener()
         startBrowser()
+
+        // Re-process the current browse results periodically: a connect
+        // that failed (or a link that dropped) is otherwise never retried,
+        // because browseResultsChanged only fires when the set changes.
+        reconnectTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            self?.reconnectTick()
+        }
     }
 
     private func log(_ s: String) {
         NSLog("ClipSync: %@", s)
         onLog?(s)
+    }
+
+    private func reconnectTick() {
+        guard let results = browser?.browseResults, !results.isEmpty else { return }
+        for result in results {
+            handleResult(result)
+        }
     }
 
     private func startListener() {
@@ -118,21 +130,21 @@ final class Discovery {
             if let n = txt["name"] { peerName = n }
         }
 
-        log("peer \(serviceName) did=\(didHex?.prefix(8) ?? "nil")")
-
         guard let peerDid = didHex else { return }
         if peerDid == identity.didHex { return }    // self
 
         if trustStore.contains(hex: peerDid) {
             if !peers.isConnected(didHex: peerDid) {
-                connect(to: endpoint)
+                connect(to: endpoint, didHex: peerDid)
             }
         } else {
             peers.notePending(name: peerName, didHex: peerDid, endpoint: endpoint)
         }
     }
 
-    private func connect(to endpoint: NWEndpoint) {
+    private func connect(to endpoint: NWEndpoint, didHex: String) {
+        guard !connecting.contains(didHex) else { return }
+        connecting.insert(didHex)
         log("connecting to \(endpoint)")
         let tlsOptions = TLS.makeClientOptions(identity: identity, trustStore: trustStore)
         let params = NWParameters(tls: tlsOptions)
@@ -141,6 +153,18 @@ final class Discovery {
                                 trustStore: trustStore, role: .client)
         pc.onLog = { [weak self] in self?.log($0) }
         peers.adopt(pc)
+        // Wrap the registry's callbacks so the in-flight marker is cleared
+        // whether the attempt succeeds or dies.
+        let registryReady = pc.onReady
+        pc.onReady = { [weak self] in
+            self?.connecting.remove(didHex)
+            registryReady?()
+        }
+        let registryClose = pc.onClose
+        pc.onClose = { [weak self] in
+            self?.connecting.remove(didHex)
+            registryClose?()
+        }
         pc.start()
     }
 }
