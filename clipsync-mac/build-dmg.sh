@@ -24,8 +24,8 @@ trap cleanup EXIT
 # Xcode's swift if available.
 SWIFT_BIN="swift"
 for cand in \
-    "/Applications/Xcode-26.1.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift" \
-    "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift"
+    "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift" \
+    /Applications/Xcode-*.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift
 do
     [[ -x "$cand" ]] && { SWIFT_BIN="$cand"; break; }
 done

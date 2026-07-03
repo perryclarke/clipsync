@@ -15,30 +15,31 @@ Clipboard History / Win+V).
   Visual Studio 2022 17.12+ with the Windows App SDK 1.6 workload, or
   `dotnet build clipsync-win/ClipSync/ClipSync.csproj -c Release`.
 
-## Known gaps in this scaffold
+## Known gaps
 
-The full build order (see `/Users/perry/.claude/plans/magical-cooking-storm.md`)
-is 11 steps. This scaffold lands steps 1–9. Three items are intentionally
-stubbed with TODOs and need to be completed before the app will sync
-end-to-end:
+Discovery, mTLS transport, CBOR framing, clipboard watchers and writers
+with loop suppression, trust-store persistence, and the menu-bar / tray
+UI are in place and internally consistent across both codebases. Two
+features remain before the app matches the full spec:
 
-1. **macOS self-signed SecIdentity builder** — `Identity.swift` has a
-   placeholder `createSelfSignedSecIdentity()`. Implement a tiny DER
-   writer for a P-256 self-signed cert and hand it to
-   `SecItemAdd(kSecClassIdentity)`. Once present, `TLS.swift` will start
-   presenting a real local identity.
-2. **SPAKE2 group math** — both `Enrollment.swift` and `Enrollment.cs`
-   set up HKDF, confirm tags, and per-direction AES-256-GCM sub-keys,
-   but the actual RFC 9383 SPAKE2 exchange over edwards25519 is not
-   vendored. Port from the Matter/CHIP reference or Go `x/crypto` and
-   feed its shared secret into `derive(from:)` / `Derive()`.
-3. **Large-item offer/accept flow** — the `LargeItemOffer` /
-   `LargeItemAccept` / `FileChunk` / `FileEnd` path is specified in
-   `PROTOCOL.md` but only the inline-payload path is wired up in code.
-   The 100 MB prompt UI and streamed file transfer are the last chunks
-   of work.
+1. **PIN pairing (SPAKE2) is not wired up.** Today, trust is established
+   **TOFU**: pending peers appear in the menu and you click *Trust* to
+   pin them (`MenuBarView.swift` → `TrustStore.add`). The PIN-gated
+   enrollment in `PROTOCOL.md` §7 is unbuilt — `EnrollmentSession`
+   derives the session key, confirm tags, and per-direction AES-256-GCM
+   sub-keys, but the SPAKE2 exchange itself, the enrollment transport,
+   and the pairing UI (`PairWindow.xaml.cs` is a TODO) do not exist yet.
+   Note: §7 cites RFC 9383 (SPAKE2+), but the symmetric shared-PIN design
+   is balanced SPAKE2 (**RFC 9382**) — implement 9382 and correct the
+   citation.
+2. **Large-item / streaming flow.** Inline payloads (≤ 64 KiB) sync
+   today. The `LargeItemOffer` / `LargeItemAccept` / `FileChunk` /
+   `FileEnd` path (`PROTOCOL.md` §6.3–6.6) has its message types and the
+   `stream_id` payload variant defined, but no codecs or handlers, so
+   anything larger than 64 KiB is not yet transferred. The >100 MiB
+   prompt UI and streamed file transfer are the remaining work.
 
-Everything else — discovery, transport skeleton, CBOR framing, clipboard
-watchers and writers with loop suppression, trust store persistence,
-menu-bar / tray UI — is in place and internally consistent across both
-codebases.
+The macOS self-signed `SecIdentity` builder (`Identity.swift`
+`createKeychainIdentity()`) and its Windows counterpart
+(`Identity.cs` `CreateSelfSignedCert()`) are **complete** — earlier
+revisions of this list described them as stubs; they no longer are.
