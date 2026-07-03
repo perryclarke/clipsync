@@ -95,6 +95,10 @@ public sealed class Identity
     private static readonly object LogLock = new();
     private static bool? _logEnabled;
 
+    /// Force diagnostic logging on regardless of env var / marker file.
+    /// Called from Program.Main when `--debug` is passed on the command line.
+    internal static void EnableLogging() => _logEnabled = true;
+
     internal static void Log(string msg)
     {
         try

@@ -20,6 +20,7 @@ public sealed class Discovery
     private readonly TrustStore _trust;
     private readonly PeerRegistry _peers;
     private ServiceDiscovery? _sd;
+    private MulticastService? _mdns;
     private TcpListener? _listener;
     private int _port;
     private int _restartPending;
@@ -59,20 +60,59 @@ public sealed class Discovery
 
     private void StartMdns()
     {
-        var sd = new ServiceDiscovery();
+        // Pin mDNS to the physical LAN NIC(s). Makaretu otherwise follows the
+        // OS default multicast route, which a VPN (e.g. NordVPN's tunnel, a
+        // lower-metric interface) captures — sending our queries into the
+        // tunnel so LAN peers are never discovered. The filter drops tunnel /
+        // VPN adapters so discovery keeps working with a VPN active.
+        var mdns = new MulticastService(SelectInterfaces);
+        var sd = new ServiceDiscovery(mdns);
         var profile = new ServiceProfile(Environment.MachineName, "_clipsync._tcp", (ushort)_port);
         profile.AddProperty("v", "1");
         profile.AddProperty("did", _identity.DidHex);
         profile.AddProperty("name", Environment.MachineName);
         profile.AddProperty("caps", "text,image,files,rich");
         profile.AddProperty("pend", _trust.IsEmpty ? "1" : "0");
-        sd.Advertise(profile);
-        try { sd.Announce(profile); } catch { /* unsolicited announce is best-effort */ }
 
         sd.ServiceInstanceDiscovered += (_, e) => OnInstanceDiscovered(e.ServiceInstanceName.ToString(), e.Message);
+        mdns.Start();
+        sd.Advertise(profile);
+        try { sd.Announce(profile); } catch { /* unsolicited announce is best-effort */ }
         sd.QueryServiceInstances("_clipsync._tcp");
+        _mdns = mdns;
         _sd = sd;
         Identity.Log($"Discovery: mDNS started, advertising port {_port}");
+    }
+
+    /// Choose which NICs Makaretu multicasts on. Given the OS candidate set,
+    /// keep real LAN interfaces and drop tunnel/VPN adapters so a VPN with a
+    /// lower interface metric can't hijack mDNS. Every candidate is logged so
+    /// we can see (and refine) the choice from the debug log.
+    private static IEnumerable<NetworkInterface> SelectInterfaces(IEnumerable<NetworkInterface> nics)
+    {
+        var all = nics.ToList();
+        foreach (var ni in all)
+            Identity.Log($"Discovery: NIC '{ni.Name}' desc='{ni.Description}' " +
+                         $"type={ni.NetworkInterfaceType} status={ni.OperationalStatus} mcast={ni.SupportsMulticast}");
+
+        var kept = all.Where(ni =>
+            ni.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+            ni.NetworkInterfaceType != NetworkInterfaceType.Tunnel &&
+            !LooksLikeVpn(ni)).ToList();
+
+        // Never hand back an empty set — that would disable mDNS entirely.
+        // Fall back to whatever the OS offered if the filter removed everything.
+        var result = kept.Count > 0 ? kept : all;
+        Identity.Log($"Discovery: mDNS bound to [{string.Join(", ", result.Select(k => k.Name))}]");
+        return result;
+    }
+
+    private static bool LooksLikeVpn(NetworkInterface ni)
+    {
+        var s = (ni.Name + " " + ni.Description).ToLowerInvariant();
+        return s.Contains("nord") || s.Contains("vpn") || s.Contains("tunnel")
+            || s.Contains("wireguard") || s.Contains("openvpn")
+            || s.Contains("tap-") || s.Contains("wintun");
     }
 
     private void ScheduleMdnsRestart(string reason)
@@ -84,6 +124,8 @@ public sealed class Discovery
             Interlocked.Exchange(ref _restartPending, 0);
             Identity.Log($"Discovery: restarting mDNS ({reason})");
             try { _sd?.Dispose(); } catch { }
+            try { _mdns?.Stop(); } catch { }
+            try { _mdns?.Dispose(); } catch { }
             try { StartMdns(); }
             catch (Exception ex) { Identity.Log($"Discovery: mDNS restart failed: {ex.Message}"); }
         });
@@ -102,10 +144,17 @@ public sealed class Discovery
 
         // Responders may put SRV/TXT/A/AAAA in either section.
         var records = msg.Answers.Concat(msg.AdditionalRecords).ToList();
-        var srv = records.OfType<SRVRecord>().FirstOrDefault();
+        // A single mDNS packet can bundle records for unrelated services
+        // (e.g. the peer's SMB share on port 445) and for other hosts. Pick
+        // the SRV that actually belongs to THIS _clipsync._tcp instance, and
+        // only take addresses advertised for that SRV's target host —
+        // otherwise a stray SMB SRV / a peer's VPN address overwrites the
+        // real clipsync endpoint and we dial the wrong port/host.
+        var srv = records.OfType<SRVRecord>()
+            .FirstOrDefault(r => DnsEquals(r.Name.ToString(), svcName));
         if (srv is not null)
         {
-            var addrs = CollectAddresses(records);
+            var addrs = CollectAddresses(records, srv.Target.ToString());
             if (addrs.Count > 0 || !_endpoints.ContainsKey(key))
                 _endpoints[key] = new Endpoint(addrs, srv.Port, srv.Target.ToString());
         }
@@ -139,26 +188,70 @@ public sealed class Discovery
         _ = ConnectAsync(key, ep);
     }
 
-    /// Keep IPv4 (excluding loopback/APIPA) and routable IPv6. Link-local
-    /// IPv6 is skipped: mDNS gives no scope ID, so it isn't connectable.
-    private static List<IPAddress> CollectAddresses(IEnumerable<ResourceRecord> records)
+    /// Collect the addresses advertised for a specific host (the SRV target).
+    /// Keep IPv4 (excluding loopback/APIPA/unspecified) and routable IPv6.
+    /// Link-local IPv6 is skipped: mDNS gives no scope ID, so it isn't
+    /// connectable. Addresses belonging to other hosts in the same packet are
+    /// ignored, and LAN-subnet addresses are tried before off-subnet ones (so
+    /// a peer's VPN address doesn't burn the connect timeout first).
+    private static List<IPAddress> CollectAddresses(IEnumerable<ResourceRecord> records, string targetHost)
     {
+        var target = NormalizeDnsName(targetHost);
         var v4 = new List<IPAddress>();
         var v6 = new List<IPAddress>();
         foreach (var rr in records)
         {
             switch (rr)
             {
-                case ARecord a when !IPAddress.IsLoopback(a.Address):
+                case ARecord a when NormalizeDnsName(a.Name.ToString()) == target
+                                    && !IPAddress.IsLoopback(a.Address)
+                                    && !a.Address.Equals(IPAddress.Any):
                     var b = a.Address.GetAddressBytes();
                     if (!(b[0] == 169 && b[1] == 254)) v4.Add(a.Address);
                     break;
-                case AAAARecord aaaa when !IPAddress.IsLoopback(aaaa.Address) && !aaaa.Address.IsIPv6LinkLocal:
+                case AAAARecord aaaa when NormalizeDnsName(aaaa.Name.ToString()) == target
+                                    && !IPAddress.IsLoopback(aaaa.Address)
+                                    && !aaaa.Address.IsIPv6LinkLocal
+                                    && !aaaa.Address.Equals(IPAddress.IPv6Any):
                     v6.Add(aaaa.Address);
                     break;
             }
         }
-        return v4.Concat(v6).Distinct().ToList();
+        return v4.Concat(v6).Distinct()
+                 .OrderByDescending(IsOnLocalSubnet)   // stable: LAN addresses first
+                 .ToList();
+    }
+
+    private static string NormalizeDnsName(string name) => name.TrimEnd('.').ToLowerInvariant();
+
+    private static bool DnsEquals(string a, string b) => NormalizeDnsName(a) == NormalizeDnsName(b);
+
+    /// True if addr sits on a subnet one of our up interfaces is on.
+    private static bool IsOnLocalSubnet(IPAddress addr)
+    {
+        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (ni.OperationalStatus != OperationalStatus.Up) continue;
+            foreach (var ua in ni.GetIPProperties().UnicastAddresses)
+            {
+                if (ua.Address.AddressFamily != addr.AddressFamily) continue;
+                if (SameSubnet(addr, ua.Address, ua.PrefixLength)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool SameSubnet(IPAddress a, IPAddress b, int prefixLength)
+    {
+        var ba = a.GetAddressBytes();
+        var bb = b.GetAddressBytes();
+        if (ba.Length != bb.Length || prefixLength < 0 || prefixLength > ba.Length * 8) return false;
+        int fullBytes = prefixLength / 8, remBits = prefixLength % 8;
+        for (int i = 0; i < fullBytes; i++)
+            if (ba[i] != bb[i]) return false;
+        if (remBits == 0) return true;
+        int mask = 0xFF << (8 - remBits) & 0xFF;
+        return (ba[fullBytes] & mask) == (bb[fullBytes] & mask);
     }
 
     private static string? TryReadProperty(Message msg, string key)

@@ -60,6 +60,23 @@ final class TrustStore {
         persist(snap)
     }
 
+    /// Forget every trusted peer. After this the device advertises pend=1
+    /// again and rejects previously-trusted peers until they re-pair.
+    func clear() {
+        lock.lock()
+        entries.removeAll()
+        let snap = entries
+        lock.unlock()
+        persist(snap)
+    }
+
+    /// Clear the persisted trust store on disk, before any instance is
+    /// loaded into memory. Used by the `--reset` command-line switch.
+    static func reset() {
+        load().clear()
+        NSLog("ClipSync: --reset cleared trusted peers")
+    }
+
     func all() -> [Entry] {
         lock.lock(); defer { lock.unlock() }
         return Array(entries.values)

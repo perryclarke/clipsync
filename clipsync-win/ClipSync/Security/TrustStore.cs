@@ -67,6 +67,18 @@ public sealed class TrustStore
         }
     }
 
+    /// Forget every trusted peer. After this the device advertises pend=1
+    /// again and rejects previously-trusted peers until they re-pair.
+    /// Used by the `--reset` command-line switch.
+    public void Clear()
+    {
+        lock (_lock)
+        {
+            _entries.Clear();
+            Persist();
+        }
+    }
+
     public IReadOnlyList<Entry> All()
     {
         lock (_lock) return _entries.Values.ToList();

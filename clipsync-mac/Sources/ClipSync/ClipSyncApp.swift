@@ -40,6 +40,11 @@ final class AppCoordinator: ObservableObject {
 
     init() {
         self.identity = Identity.loadOrCreate()
+        // `--reset` forgets all trusted peers so the user must re-approve
+        // connections. Must run before the store is loaded into memory below.
+        if CommandLine.arguments.contains("--reset") {
+            TrustStore.reset()
+        }
         self.trustStore = TrustStore.load()
         self.peers = PeerRegistry()
         self.writer = PasteboardWriter()
