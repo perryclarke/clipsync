@@ -21,3 +21,6 @@ Thumbs.db
 # Signing cert blobs (if any get pulled into tree)
 *.cer
 *.p12
+
+# Per-machine Claude Code config (hardcoded local paths/permissions)
+.claude/settings.local.json

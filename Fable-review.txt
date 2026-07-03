@@ -1,0 +1,41 @@
+Done. I reviewed both implementations, fixed the reliability and privacy issues on both platforms, built the Windows version,
+  smoke-tested it live, and installed the upgraded MSI (v0.1.1.0) — it's running now from %LOCALAPPDATA%\Programs\ClipSync.
+
+  Why peers were failing to see each other
+
+  The root cause wasn't really discovery — it was that a connection was only ever attempted once, inside the mDNS event handler. If
+  that single TCP connect failed (stale address, firewall prompt pending, peer asleep), nothing retried until mDNS happened to fire
+  again, which record caching often prevents. On top of that, dead connections were never detected, so a peer that dropped off stayed
+  "Online" forever and blocked reconnection. Fixes, on both platforms:
+
+  - Reconnect loops: Windows retries trusted-but-disconnected peers every 15s from cached endpoints; the Mac re-processes its Bonjour
+  browse results every 20s. Both deduplicate in-flight attempts.
+  - Keepalive: ping/pong every 20s with a 75s idle timeout (plus TCP keepalive on Windows), so dead links are torn down and reconnect
+  can kick in. Previously Ping/Pong existed in the protocol but neither side implemented it.
+  - Simultaneous-connect bug: when both sides dialed each other at once, the registry overwrote one connection and the loser's close
+  handler then evicted the winner, leaving a live connection invisible. Both sides now deterministically keep the same one (lower-DID
+  device's client connection wins) and only unregister their own entry.
+  - Windows mDNS hardening: addresses are now parsed from both the Answers and Additional sections, all usable addresses are tried in
+  order (loopback/APIPA/link-local-v6 filtered out — previously it could latch onto one unreachable address), with a .local hostname
+  resolution fallback and 5s connect timeouts. Discovery restarts itself on network change/sleep-wake (the old sockets went stale
+  silently), sends an unsolicited announce at startup, and filters "self" by DID instead of machine-name prefix.
+
+  Privacy fixes
+
+  - Clipboard content was being written to disk: the always-on debug.log recorded the first 80 chars of every synced item plus raw
+  key dumps. Logging is now off by default (opt-in via CLIPSYNC_DEBUG=1 or a debug-enabled marker file), never includes clipboard
+  content, and rotates at 5 MB. Note: your pre-existing log still exists as %LOCALAPPDATA%\ClipSync\debug.log.old — you may want to
+  delete it.
+  - TLS 1.3 now enforced on Windows (the Mac was already 1.3-only).
+  - Identity spoofing hole closed: the peer's identity is now taken from the pinned TLS certificate, not the self-claimed Hello
+  message (mismatch = disconnect). On the Mac I also removed the auto-promotion that wrote the claimed hello-DID into the persistent
+  trust store — a trusted peer could have silently enrolled an arbitrary third identity.
+
+  Testing
+
+  Windows: Debug and Release builds clean; ran the new build live — identity loads, mDNS advertises, the maintenance loop retries
+  both trusted peers, and probing the listener with openssl confirmed TLS 1.2 is refused (protocol version alert) and TLS 1.3 without
+  a trusted client cert is rejected (certificate unknown), both handled gracefully in the logs. Your Mac wasn't reachable on the LAN
+  during the session, so end-to-end sync couldn't be verified — and I can't compile Swift here, so the macOS changes (4 files:
+  Discovery, PeerConnection, PeerRegistry, Protocol) are written conservatively but need a swift build and a pairing test on the Mac
+  when you're next on it.
