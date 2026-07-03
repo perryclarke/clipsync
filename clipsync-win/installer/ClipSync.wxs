@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package
+      Name="ClipSync"
+      Manufacturer="Perry Clarke"
+      Version="0.1.1.0"
+      UpgradeCode="A2D6C2E0-0F4F-4F0B-9D1F-7B9C3F2B6D11"
+      Scope="perUser"
+      Compressed="yes"
+      InstallerVersion="500">
+
+    <SummaryInformation Description="ClipSync — cross-platform clipboard sync" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ClipSync is already installed." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="ClipSyncIcon.ico" SourceFile="!(bindpath.icon)\AppIcon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ClipSyncIcon.ico" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="ClipSync" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ClipSyncStartMenuFolder" Name="ClipSync" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="ClipSync" Level="1" Display="expand" AllowAbsent="no">
+      <Files Include="!(bindpath.publish)\**" Directory="INSTALLFOLDER" />
+      <ComponentGroupRef Id="ShortcutsAndAutostart" />
+    </Feature>
+
+    <ComponentGroup Id="ShortcutsAndAutostart">
+
+      <Component Id="StartMenuShortcut" Directory="ClipSyncStartMenuFolder" Guid="C9F2C4A6-5C1E-4B62-9B3D-2D7B8E2F7A01">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="ClipSync"
+                  Description="Cross-platform clipboard sync"
+                  Target="[INSTALLFOLDER]ClipSync.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="ClipSyncIcon.ico" />
+        <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\ClipSync"
+                       Name="StartMenuShortcut"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+      <!-- Launch ClipSync at user login. Per-user install + HKCU\...\Run keeps
+           this scoped to the installing user with no UAC prompt. -->
+      <Component Id="AutostartRunKey" Directory="INSTALLFOLDER" Guid="3F1A8B22-7E40-4D1F-9F0A-9C2C5A4D2B02">
+        <RegistryValue Root="HKCU"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="ClipSync"
+                       Type="string"
+                       Value="&quot;[INSTALLFOLDER]ClipSync.exe&quot;"
+                       KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+  </Package>
+</Wix>
