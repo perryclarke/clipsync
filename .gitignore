@@ -13,6 +13,12 @@ clipsync-win/.vs/
 clipsync-win/packages/
 clipsync-win/publish/
 
+# Test-tool build artifacts (tools/clipfuzz-*)
+tools/**/.build/
+tools/**/bin/
+tools/**/obj/
+tools/**/.swiftpm/
+
 # System
 .DS_Store
 Thumbs.db
