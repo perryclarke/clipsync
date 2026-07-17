@@ -67,7 +67,19 @@ public sealed class Discovery
         // VPN adapters so discovery keeps working with a VPN active.
         var mdns = new MulticastService(SelectInterfaces);
         var sd = new ServiceDiscovery(mdns);
-        var profile = new ServiceProfile(Environment.MachineName, "_clipsync._tcp", (ushort)_port);
+
+        // Publish only addresses a LAN peer can actually reach. Left to itself,
+        // ServiceProfile fills our A/AAAA records from *every* local address —
+        // including the VPN tunnel's. A peer that picks one of those blackholes
+        // its SYNs and burns the whole connect timeout instead of falling back
+        // to our LAN address, so it never connects (macOS NWConnection does
+        // exactly this). SelectInterfaces only scopes which NICs we multicast
+        // on; it does not filter the addresses baked into the advertisement.
+        var addrs = AdvertiseAddresses();
+        Identity.Log($"Discovery: advertising addrs=[{string.Join(",", addrs)}]");
+        var profile = addrs.Count > 0
+            ? new ServiceProfile(Environment.MachineName, "_clipsync._tcp", (ushort)_port, addrs)
+            : new ServiceProfile(Environment.MachineName, "_clipsync._tcp", (ushort)_port);
         profile.AddProperty("v", "1");
         profile.AddProperty("did", _identity.DidHex);
         profile.AddProperty("name", Environment.MachineName);
@@ -113,6 +125,43 @@ public sealed class Discovery
         return s.Contains("nord") || s.Contains("vpn") || s.Contains("tunnel")
             || s.Contains("wireguard") || s.Contains("openvpn")
             || s.Contains("tap-") || s.Contains("wintun");
+    }
+
+    /// The addresses to publish in our own A/AAAA records: real LAN NICs only,
+    /// dropping loopback/APIPA/unspecified v4 and link-local v6 (mDNS carries
+    /// no scope ID, so a peer can't dial it). This is the advertise-side twin
+    /// of CollectAddresses, which applies the same rules to what peers send us.
+    private static List<IPAddress> AdvertiseAddresses()
+    {
+        var addrs = new List<IPAddress>();
+        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (ni.OperationalStatus != OperationalStatus.Up) continue;
+            if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+            if (ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
+            if (LooksLikeVpn(ni)) continue;
+
+            foreach (var ua in ni.GetIPProperties().UnicastAddresses)
+            {
+                var a = ua.Address;
+                if (IPAddress.IsLoopback(a)) continue;
+                switch (a.AddressFamily)
+                {
+                    case AddressFamily.InterNetwork:
+                        var b = a.GetAddressBytes();
+                        if (b[0] == 169 && b[1] == 254) continue;   // APIPA
+                        if (a.Equals(IPAddress.Any)) continue;
+                        addrs.Add(a);
+                        break;
+                    case AddressFamily.InterNetworkV6:
+                        if (a.IsIPv6LinkLocal) continue;
+                        if (a.Equals(IPAddress.IPv6Any)) continue;
+                        addrs.Add(a);
+                        break;
+                }
+            }
+        }
+        return addrs.Distinct().ToList();
     }
 
     private void ScheduleMdnsRestart(string reason)
