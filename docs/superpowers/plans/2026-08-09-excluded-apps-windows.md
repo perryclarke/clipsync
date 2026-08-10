@@ -14,7 +14,7 @@
 
 - Target framework for **all** projects: `net10.0-windows10.0.26100.0`. Platform `x64`.
 - `dotnet` is **not on PATH**. Every command uses `$dotnet = "C:\Program Files\dotnet\dotnet.exe"`.
-- `<Nullable>enable</Nullable>` on every new project. The build currently emits 6 warnings; do not add more.
+- `<Nullable>enable</Nullable>` on every new project. The build currently emits 2 warnings (both CS0067 in TrayIcon.cs); do not add more.
 - **No new NuGet dependencies in the app or Core.** Test project gets xunit only.
 - Logging goes through `ClipSync.Security.Identity.Log`. It must **never** contain clipboard content — display names, counts and metadata only.
 - **Fail open:** any failure to determine the foreground app results in the item being transmitted.
@@ -292,7 +292,7 @@ $dotnet = "C:\Program Files\dotnet\dotnet.exe"
 & $dotnet build C:\Users\perry\src\clipsync\clipsync-win\ClipSync\ClipSync.csproj -c Debug -p:Platform=x64 --nologo
 ```
 
-Expected: `Build succeeded.` with 6 warnings (the pre-existing ones). No new warnings.
+Expected: `Build succeeded.` with 2 warnings (the pre-existing CS0067 pair). No new warnings.
 
 - [ ] **Step 10: Commit**
 
@@ -1362,7 +1362,7 @@ $dotnet = "C:\Program Files\dotnet\dotnet.exe"
 & $dotnet build C:\Users\perry\src\clipsync\clipsync-win\ClipSync\ClipSync.csproj -c Debug -p:Platform=x64 --nologo
 ```
 
-Expected: `Build succeeded.` with the 6 pre-existing warnings and no new ones.
+Expected: `Build succeeded.` with the 2 pre-existing warnings and no new ones.
 
 - [ ] **Step 6: Smoke-test the headless feature**
 
@@ -1674,7 +1674,7 @@ $dotnet = "C:\Program Files\dotnet\dotnet.exe"
 & $dotnet build C:\Users\perry\src\clipsync\clipsync-win\ClipSync\ClipSync.csproj -c Debug -p:Platform=x64 --nologo
 ```
 
-Expected: `Build succeeded.` with only the 6 pre-existing warnings.
+Expected: `Build succeeded.` with only the 2 pre-existing warnings.
 
 - [ ] **Step 3: Verify enumeration returns real apps**
 
@@ -1896,7 +1896,7 @@ $dotnet = "C:\Program Files\dotnet\dotnet.exe"
 & $dotnet build C:\Users\perry\src\clipsync\clipsync-win\ClipSync\ClipSync.csproj -c Debug -p:Platform=x64 --nologo
 ```
 
-Expected: `Build succeeded.` with only the 6 pre-existing warnings.
+Expected: `Build succeeded.` with only the 2 pre-existing warnings.
 
 - [ ] **Step 6: Verify by hand**
 
@@ -2114,7 +2114,7 @@ $dotnet = "C:\Program Files\dotnet\dotnet.exe"
 & $dotnet build C:\Users\perry\src\clipsync\clipsync-win\ClipSync\ClipSync.csproj -c Debug -p:Platform=x64 --nologo
 ```
 
-Expected: `Build succeeded.` with only the 6 pre-existing warnings.
+Expected: `Build succeeded.` with only the 2 pre-existing warnings.
 
 - [ ] **Step 5: Verify by hand**
 
@@ -2156,7 +2156,7 @@ $dotnet = "C:\Program Files\dotnet\dotnet.exe"
 & $dotnet build C:\Users\perry\src\clipsync\clipsync-win\ClipSync\ClipSync.csproj -c Release -p:Platform=x64 --nologo
 ```
 
-Expected: `Build succeeded.` 6 warnings, 0 errors.
+Expected: `Build succeeded.` 2 warnings, 0 errors.
 
 - [ ] **Step 3: Work through the manual matrix**
 
