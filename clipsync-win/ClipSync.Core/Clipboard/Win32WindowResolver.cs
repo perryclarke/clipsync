@@ -33,19 +33,28 @@ public sealed class Win32WindowResolver : IWindowResolver
             if (exePath is null) return null;
 
             // Store app hosted in the frame host: hop to the real process.
+            // Once we know the window belongs to the frame host, this hop is
+            // the only route to a correct identity, so its failure must be
+            // terminal -- falling through would report the frame host itself
+            // as a confidently-wrong answer instead of failing open.
             if (string.Equals(System.IO.Path.GetFileName(exePath), FrameHost, StringComparison.OrdinalIgnoreCase))
             {
-                var inner = FindCoreWindowPid(hwnd, pid);
-                if (inner is { } innerPid)
-                {
-                    var innerPath = ExePathOf(innerPid);
-                    if (innerPath is not null) { pid = innerPid; exePath = innerPath; }
-                }
+                if (FindCoreWindowPid(hwnd, pid) is not { } innerPid) return null;
+                if (ExePathOf(innerPid) is not { } innerPath) return null;
+                pid = innerPid;
+                exePath = innerPath;
             }
 
-            var family = PackageFamilyOf(pid);
+            var family = PackageFamilyOf(pid, out var packageDetermined);
             if (family is not null)
                 return new AppIdentity(AppKind.Package, family, family);
+
+            // PackageFamilyOf collapses "definitely not packaged" and
+            // "could not determine" unless we ask it not to. Only the former
+            // justifies reporting an Exe identity; the latter must fail open
+            // too, or a package the user excluded resolves to a non-matching
+            // Exe identity instead of null.
+            if (!packageDetermined) return null;
 
             return new AppIdentity(AppKind.Exe, exePath, FriendlyName(exePath), exePath);
         }
@@ -59,7 +68,11 @@ public sealed class Win32WindowResolver : IWindowResolver
     private static string? ExePathOf(uint pid)
     {
         var h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-        if (h == IntPtr.Zero) return null;   // typically an elevated process
+        // PROCESS_QUERY_LIMITED_INFORMATION exists precisely so a medium-IL
+        // process can query a high-IL one; a null handle here is more likely
+        // a protected/system process, or a race where the process already
+        // exited, than elevation as such.
+        if (h == IntPtr.Zero) return null;
         try
         {
             var sb = new StringBuilder(1024);
@@ -69,19 +82,33 @@ public sealed class Win32WindowResolver : IWindowResolver
         finally { CloseHandle(h); }
     }
 
-    private static string? PackageFamilyOf(uint pid)
+    /// The package family name, or null if none. `determined` distinguishes
+    /// "definitely not a packaged app" (APPMODEL_ERROR_NO_PACKAGE -- safe to
+    /// fall through to an Exe identity) from "could not tell" (OpenProcess
+    /// or the second GetPackageFamilyName call failed -- caller must fail
+    /// open rather than guess).
+    private static string? PackageFamilyOf(uint pid, out bool determined)
     {
+        determined = false;
         var h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
         if (h == IntPtr.Zero) return null;
         try
         {
             uint len = 0;
             var rc = GetPackageFamilyName(h, ref len, null);
-            if (rc == APPMODEL_ERROR_NO_PACKAGE || len == 0) return null;
+            if (rc == APPMODEL_ERROR_NO_PACKAGE)
+            {
+                determined = true;
+                return null;
+            }
+            if (len == 0) return null;   // unexpected shape: indeterminate
 
             var sb = new StringBuilder((int)len);
             rc = GetPackageFamilyName(h, ref len, sb);
-            return rc == 0 ? sb.ToString() : null;
+            if (rc != 0) return null;    // second call failed: indeterminate
+
+            determined = true;
+            return sb.ToString();
         }
         finally { CloseHandle(h); }
     }
