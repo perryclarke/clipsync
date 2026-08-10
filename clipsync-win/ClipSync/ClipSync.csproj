@@ -33,6 +33,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ClipSync.Core\ClipSync.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 </Project>
