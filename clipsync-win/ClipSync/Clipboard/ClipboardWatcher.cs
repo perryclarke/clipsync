@@ -5,6 +5,7 @@ using Windows.ApplicationModel.DataTransfer;
 using WinClipboard = Windows.ApplicationModel.DataTransfer.Clipboard;
 using ClipSync.Net;
 using ClipSync.Security;
+using ClipSync.Settings;
 
 namespace ClipSync.Clipboard;
 
@@ -16,16 +17,30 @@ public sealed class ClipboardWatcher
     public Action<ClipboardItem>? OnLocalCopy;
 
     private readonly ClipboardWriter _writer;
+    private readonly ForegroundTracker _foreground;
+    private readonly AppSettings _settings;
     private ulong _seq = 1;
 
-    public ClipboardWatcher(ClipboardWriter writer) { _writer = writer; }
+    public ClipboardWatcher(ClipboardWriter writer, ForegroundTracker foreground, AppSettings settings)
+    {
+        _writer = writer;
+        _foreground = foreground;
+        _settings = settings;
+    }
 
     public void Start()
     {
-        WinClipboard.ContentChanged += async (_, _) => await OnChangedAsync();
+        // Timestamp here, synchronously: OnChangedAsync awaits several
+        // WinRT calls, so by the time it has an item the user may have
+        // switched apps. This is the only trustworthy anchor to the copy.
+        WinClipboard.ContentChanged += async (_, _) =>
+        {
+            var copiedAt = DateTime.UtcNow;
+            await OnChangedAsync(copiedAt);
+        };
     }
 
-    private async Task OnChangedAsync()
+    private async Task OnChangedAsync(DateTime copiedAt)
     {
         try
         {
@@ -73,7 +88,22 @@ public sealed class ClipboardWatcher
                 formats,
                 FirstTextHint(formats));
 
+            // Loop suppression stays first: if the exclusion check
+            // short-circuited it, the recent-write marker would survive
+            // into the next copy and cause a spurious echo.
             if (_writer.ConsumeRecentWrite(item.CanonicalHash())) return;
+
+            // Suppress transmission only — the item is already in the
+            // local clipboard and Win+V, and we deliberately leave it
+            // there. An unresolved source app falls open and is sent.
+            var source = _foreground.AppAt(copiedAt);
+            if (source is not null && _settings.IsExcluded(source))
+            {
+                Identity.Log($"ClipboardWatcher: suppressed item from {source.DisplayName} " +
+                             $"({item.Formats.Count} formats)");
+                return;
+            }
+
             OnLocalCopy?.Invoke(item);
         }
         catch { /* ignore; clipboard APIs can throw transiently */ }

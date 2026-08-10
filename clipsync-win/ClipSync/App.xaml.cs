@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using ClipSync.Clipboard;
 using ClipSync.Net;
 using ClipSync.Security;
+using ClipSync.Settings;
 using ClipSync.UI;
 
 namespace ClipSync;
@@ -19,6 +20,8 @@ public partial class App : Application
     public ClipboardWriter Writer { get; private set; } = null!;
     public Discovery Discovery { get; private set; } = null!;
     public TrayIcon Tray { get; private set; } = null!;
+    public AppSettings Settings { get; private set; } = null!;
+    public ForegroundTracker Foreground { get; private set; } = null!;
 
     public App() { InitializeComponent(); }
 
@@ -28,15 +31,21 @@ public partial class App : Application
         {
             UIDispatcher = DispatcherQueue.GetForCurrentThread();
             Identity = Identity.LoadOrCreate();
+            // Route Core's diagnostics into the same opt-in debug log.
+            ClipSync.Security.Log.Sink = Identity.Log;
             TrustStore = TrustStore.Load();
+            Settings = AppSettings.Load();
             Peers = new PeerRegistry(Identity.DidHex);
             Writer = new ClipboardWriter();
-            Watcher = new ClipboardWatcher(Writer);
+            Foreground = new ForegroundTracker();
+            Watcher = new ClipboardWatcher(Writer, Foreground, Settings);
             Discovery = new Discovery(Identity, TrustStore, Peers);
 
             Watcher.OnLocalCopy = item => Peers.Broadcast(item);
             Peers.OnRemoteItem = item => Writer.Apply(item);
 
+            // Before the watcher, so the seed entry predates any copy.
+            Foreground.Start();
             Watcher.Start();
             Discovery.Start();
 
