@@ -11,17 +11,31 @@ Clipboard History / Win+V).
   `swift build -c release` inside `clipsync-mac/`; to ship as a real
   `.app` wrap the binary with the provided `Info.plist` and
   Developer-ID-sign + notarize it.
-- **clipsync-win/** — .NET 9 / WinUI 3 tray app. Open `ClipSync.sln` in
+- **clipsync-win/** — .NET 10 / WinUI 3 tray app. Open `ClipSync.sln` in
   Visual Studio 2022 17.12+ with the Windows App SDK 1.6 workload, or
   `dotnet build clipsync-win/ClipSync/ClipSync.csproj -c Release`.
 
   Apps can be excluded from sync: open the tray menu → **Settings…** →
-  **Add app…** and pick from the installed-app list. Anything copied while
-  an excluded app is in the foreground stays local — it is still placed in
+  **Add app…** and pick from the installed-app list, which covers Store /
+  UWP apps as well as desktop ones. **Browse…** in that dialog picks an
+  `.exe` directly, for anything the list misses. Anything copied while an
+  excluded app is in the foreground stays local — it is still placed in
   your own clipboard and Win+V history, but never sent to a peer. If
   ClipSync cannot identify the foreground app — some system and protected
   processes cannot be inspected — the item is treated as not excluded and
   is synced.
+
+  Desktop apps are matched on the executable's file name, which the list
+  reads from the Start Menu shortcut's target. Some apps start through a
+  stub — a launcher, or a Squirrel `Update.exe` — that is not the
+  executable owning the window you copy from, so picking them from the list
+  has no effect. If an exclusion does not take, use **Exclude current
+  app…** instead: it counts down five seconds while you switch to the app,
+  then records whatever is actually in the foreground, which is by
+  construction what the matching sees. (**Browse…** to the real `.exe`
+  works too.) Where several Start Menu entries share one executable — a
+  dozen share `cmd.exe` — they appear as a single row labelled "… (and 11
+  others)", because excluding one excludes all of them.
 
 ## Known gaps
 
