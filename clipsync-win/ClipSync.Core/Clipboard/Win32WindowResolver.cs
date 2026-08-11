@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using ClipSync.Settings;
@@ -56,7 +55,15 @@ public sealed class Win32WindowResolver : IWindowResolver
             // Exe identity instead of null.
             if (!packageDetermined) return null;
 
-            return new AppIdentity(AppKind.Exe, exePath, FriendlyName(exePath), exePath);
+            // Bare file name, deliberately: Resolve runs on the UI thread's
+            // message pump (WINEVENT_OUTOFCONTEXT) on every focus change, and
+            // FileVersionInfo.GetVersionInfo is an uncached synchronous file
+            // read that a network path or a stalled filesystem filter can
+            // block on. Matching uses Key only and this DisplayName is never
+            // shown in the UI -- names there come from InstalledApps -- so its
+            // sole consumer is the opt-in debug log.
+            return new AppIdentity(AppKind.Exe, exePath,
+                                   System.IO.Path.GetFileNameWithoutExtension(exePath), exePath);
         }
         catch (Exception ex)
         {
@@ -71,13 +78,24 @@ public sealed class Win32WindowResolver : IWindowResolver
         // PROCESS_QUERY_LIMITED_INFORMATION exists precisely so a medium-IL
         // process can query a high-IL one; a null handle here is more likely
         // a protected/system process, or a race where the process already
-        // exited, than elevation as such.
-        if (h == IntPtr.Zero) return null;
+        // exited, than elevation as such. The error code is logged so the two
+        // are distinguishable: ERROR_ACCESS_DENIED (5) means the access check
+        // refused us, ERROR_INVALID_PARAMETER (87) means the PID was already
+        // gone by the time we asked.
+        if (h == IntPtr.Zero)
+        {
+            Security.Log.Write($"Win32WindowResolver: OpenProcess({pid}) failed, error {Marshal.GetLastWin32Error()}");
+            return null;
+        }
         try
         {
             var sb = new StringBuilder(1024);
             var size = sb.Capacity;
-            return QueryFullProcessImageName(h, 0, sb, ref size) ? sb.ToString() : null;
+            if (QueryFullProcessImageName(h, 0, sb, ref size)) return sb.ToString();
+
+            Security.Log.Write($"Win32WindowResolver: QueryFullProcessImageName({pid}) failed, " +
+                               $"error {Marshal.GetLastWin32Error()}");
+            return null;
         }
         finally { CloseHandle(h); }
     }
@@ -91,7 +109,12 @@ public sealed class Win32WindowResolver : IWindowResolver
     {
         determined = false;
         var h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-        if (h == IntPtr.Zero) return null;
+        if (h == IntPtr.Zero)
+        {
+            Security.Log.Write($"Win32WindowResolver: OpenProcess({pid}) for package lookup failed, " +
+                               $"error {Marshal.GetLastWin32Error()}");
+            return null;
+        }
         try
         {
             uint len = 0;
@@ -134,19 +157,6 @@ public sealed class Win32WindowResolver : IWindowResolver
         return found == 0 ? null : found;
     }
 
-    /// Prefer the executable's own description ("KeePassXC") over the raw
-    /// file name; fall back to the file name when it has none.
-    private static string FriendlyName(string exePath)
-    {
-        try
-        {
-            var desc = FileVersionInfo.GetVersionInfo(exePath).FileDescription;
-            if (!string.IsNullOrWhiteSpace(desc)) return desc!;
-        }
-        catch { }
-        return System.IO.Path.GetFileNameWithoutExtension(exePath);
-    }
-
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 
     [DllImport("user32.dll")]
@@ -161,13 +171,17 @@ public sealed class Win32WindowResolver : IWindowResolver
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder name, int maxCount);
 
-    [DllImport("kernel32.dll")]
+    // SetLastError on these two so a failure is attributable: "resolve
+    // failed" alone cannot tell an access-denied from a teardown race, and
+    // that distinction is the whole answer to whether an elevated foreground
+    // app can be excluded.
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr OpenProcess(uint access, bool inherit, uint processId);
 
     [DllImport("kernel32.dll")]
     private static extern bool CloseHandle(IntPtr handle);
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder name, ref int size);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
