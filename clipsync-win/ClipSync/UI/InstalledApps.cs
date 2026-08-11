@@ -10,10 +10,20 @@ using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace ClipSync.UI;
 
+/// One row for the picker.
+///
 /// `IconPng` is raw PNG bytes, not a WinUI type: `Enumerate` runs on a
 /// background thread, and `BitmapImage` has hard UI-thread affinity. Convert
 /// with `InstalledApps.ToImageSource` on the UI thread when displaying.
-public sealed record InstalledApp(AppIdentity Identity, byte[]? IconPng);
+///
+/// `Names` holds every distinct Start-menu name that resolves to `Identity`,
+/// alphabetically, primary first. It usually has one entry, but under
+/// file-name matching several shortcuts genuinely are one app — twelve share
+/// `cmd.exe` on a typical machine, and `ONENOTE.EXE` backs both "OneNote"
+/// and "Sticky Notes (new)". Excluding the row excludes all of them, so the
+/// row says so (see `Identity.DisplayName`) and stays searchable by any of
+/// the names rather than silently hiding all but one.
+public sealed record InstalledApp(AppIdentity Identity, byte[]? IconPng, IReadOnlyList<string> Names);
 
 /// Enumerates the shell's AppsFolder — the same list Start > All apps
 /// shows, covering both desktop and Store apps.
@@ -28,8 +38,10 @@ public static class InstalledApps
     /// touched here — see `InstalledApp.IconPng`.
     public static IReadOnlyList<InstalledApp> Enumerate(CancellationToken ct = default)
     {
-        var results = new List<InstalledApp>();
-        var seen = new HashSet<AppIdentity>();
+        // Keyed by identity, i.e. by Kind+Key, so shortcuts that collapse to
+        // one match key collapse to one row. The first entry seen wins the
+        // icon and the example path; every name is kept.
+        var groups = new Dictionary<AppIdentity, Group>();
 
         try
         {
@@ -38,7 +50,7 @@ public static class InstalledApps
                 || folder is null)
             {
                 Security.Identity.Log("InstalledApps: could not open AppsFolder");
-                return results;
+                return Array.Empty<InstalledApp>();
             }
 
             var enumIid = typeof(IEnumShellItems).GUID;
@@ -46,7 +58,7 @@ public static class InstalledApps
             if (enumObj is not IEnumShellItems items)
             {
                 Security.Identity.Log("InstalledApps: AppsFolder returned no enumerator");
-                return results;
+                return Array.Empty<InstalledApp>();
             }
 
             var buffer = new IShellItem[1];
@@ -56,8 +68,15 @@ public static class InstalledApps
                 try
                 {
                     var identity = IdentityOf(item);
-                    if (identity is null || !seen.Add(identity)) continue;
-                    results.Add(new InstalledApp(identity, IconOf(item)));
+                    if (identity is null) continue;
+
+                    // A key we have already seen is not a duplicate to drop:
+                    // it is a second app that this exclusion would also
+                    // cover. Record its name so the merged row can say so.
+                    if (groups.TryGetValue(identity, out var group))
+                        group.Names.Add(identity.DisplayName);
+                    else
+                        groups.Add(identity, new Group(identity, IconOf(item), identity.DisplayName));
                 }
                 catch (Exception ex)
                 {
@@ -71,9 +90,44 @@ public static class InstalledApps
             Security.Identity.Log($"InstalledApps: enumeration failed: {ex.GetType().Name}");
         }
 
+        var results = new List<InstalledApp>(groups.Count);
+        foreach (var group in groups.Values) results.Add(group.ToApp());
+
         results.Sort((a, b) => string.Compare(a.Identity.DisplayName, b.Identity.DisplayName,
                                               StringComparison.CurrentCultureIgnoreCase));
         return results;
+    }
+
+    /// The shortcuts sharing one match key, accumulated during enumeration.
+    private sealed class Group
+    {
+        private readonly AppIdentity _first;
+        private readonly byte[]? _icon;
+
+        /// Sorted and de-duplicated: two Start-menu entries can carry the
+        /// same name as well as the same target, and "(and 1 others)" for
+        /// what the user sees as one app would be nonsense.
+        public SortedSet<string> Names { get; }
+
+        public Group(AppIdentity first, byte[]? icon, string name)
+        {
+            _first = first;
+            _icon = icon;
+            Names = new SortedSet<string>(StringComparer.CurrentCultureIgnoreCase) { name };
+        }
+
+        public InstalledApp ToApp()
+        {
+            var names = new List<string>(Names);
+            if (names.Count == 1) return new InstalledApp(_first, _icon, names);
+
+            // Excluding this row excludes every app behind it, so the label
+            // has to admit that rather than present one arbitrary name.
+            var extra = names.Count - 1;
+            var label = $"{names[0]} (and {extra} other{(extra == 1 ? "" : "s")})";
+            return new InstalledApp(
+                new AppIdentity(_first.Kind, _first.Key, label, _first.Path), _icon, names);
+        }
     }
 
     /// Build an Exe identity from a path the user browsed to.

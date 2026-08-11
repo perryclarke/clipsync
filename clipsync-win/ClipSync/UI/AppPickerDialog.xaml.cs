@@ -4,15 +4,57 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using ClipSync.Settings;
 using WinRT.Interop;
 
 namespace ClipSync.UI;
 
+/// One picker row, ready to display.
+///
+/// The `ImageSource` is built once, when the list is first loaded, and then
+/// reused for the lifetime of the dialog: filtering re-binds the same row
+/// objects, so typing in the search box costs no PNG decodes. It is created
+/// on the UI thread, as `ToImageSource` requires.
+public sealed class AppRow
+{
+    public AppRow(InstalledApp app)
+    {
+        Identity = app.Identity;
+        Name = app.Identity.DisplayName;
+        // Only merged rows earn the second line, where it says which single
+        // executable all those names share. A one-name row would just be
+        // repeating itself.
+        Detail = app.Names.Count > 1 ? app.Identity.Key : "";
+        Icon = InstalledApps.ToImageSource(app.IconPng);
+        _searchable = app.Names;
+    }
+
+    public AppIdentity Identity { get; }
+    public string Name { get; }
+    public string Detail { get; }
+    public ImageSource? Icon { get; }
+
+    public Visibility DetailVisibility =>
+        Detail.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+    private readonly IReadOnlyList<string> _searchable;
+
+    /// Matches on any of the app's names, not just the displayed one: on a
+    /// merged row eleven of the twelve names are not shown, and typing
+    /// "Command Prompt" must still find the row that excludes it.
+    public bool Matches(string query)
+    {
+        foreach (var name in _searchable)
+            if (name.Contains(query, StringComparison.CurrentCultureIgnoreCase)) return true;
+        return Identity.Key.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
 public sealed partial class AppPickerDialog : ContentDialog
 {
     private readonly Window _owner;
-    private IReadOnlyList<InstalledApp> _all = Array.Empty<InstalledApp>();
+    private IReadOnlyList<AppRow> _all = Array.Empty<AppRow>();
     private AppIdentity? _browsed;
     private bool _enumerationFailed;
 
@@ -34,9 +76,8 @@ public sealed partial class AppPickerDialog : ContentDialog
         // Browse dismisses via Hide(), which yields None rather than
         // Primary, so a browsed pick has to be checked either way.
         if (dialog._browsed is { } browsed) return browsed;
-        if (result == ContentDialogResult.Primary
-            && dialog.AppList.SelectedItem is ListViewItem { Tag: AppIdentity picked })
-            return picked;
+        if (result == ContentDialogResult.Primary && dialog.AppList.SelectedItem is AppRow picked)
+            return picked.Identity;
         return null;
     }
 
@@ -51,43 +92,23 @@ public sealed partial class AppPickerDialog : ContentDialog
         _enumerationFailed = apps.Count == 0;
 
         var alreadyExcluded = App.Current.Settings.Excluded.ToHashSet();
-        _all = apps.Where(a => !alreadyExcluded.Contains(a.Identity)).ToList();
+        _all = apps.Where(a => !alreadyExcluded.Contains(a.Identity))
+                   .Select(a => new AppRow(a))
+                   .ToList();
 
         Busy.IsActive = false;
         Busy.Visibility = Visibility.Collapsed;
         if (_enumerationFailed) ErrorText.Visibility = Visibility.Visible;
 
-        Populate(_all);
+        AppList.ItemsSource = _all;
     }
 
     private void OnSearchChanged(object sender, TextChangedEventArgs e)
     {
         var q = SearchBox.Text.Trim();
-        Populate(string.IsNullOrEmpty(q)
+        AppList.ItemsSource = string.IsNullOrEmpty(q)
             ? _all
-            : _all.Where(a => a.Identity.DisplayName.Contains(q, StringComparison.CurrentCultureIgnoreCase))
-                  .ToList());
-    }
-
-    private void Populate(IReadOnlyList<InstalledApp> apps)
-    {
-        AppList.Items.Clear();
-        foreach (var app in apps)
-        {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-            row.Children.Add(new Image
-            {
-                // Populate runs on the UI thread, which ToImageSource requires.
-                Width = 24, Height = 24, Source = InstalledApps.ToImageSource(app.IconPng),
-                VerticalAlignment = VerticalAlignment.Center,
-            });
-            row.Children.Add(new TextBlock
-            {
-                Text = app.Identity.DisplayName,
-                VerticalAlignment = VerticalAlignment.Center,
-            });
-            AppList.Items.Add(new ListViewItem { Content = row, Tag = app.Identity });
-        }
+            : _all.Where(a => a.Matches(q)).ToList();
     }
 
     /// SecondaryButton = Browse. Keep the dialog open while the file
