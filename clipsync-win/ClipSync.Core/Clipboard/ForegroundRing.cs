@@ -17,14 +17,26 @@ public sealed class ForegroundRing : IForegroundSource
 
     private readonly List<Entry> _entries = new();
     private readonly object _lock = new();
+    private long _transitions;
 
     private readonly record struct Entry(DateTime At, AppIdentity? App);
+
+    /// How many transitions have ever been recorded, including the seed and
+    /// including unresolvable ones. Monotonic: trimming evicts entries but
+    /// never decrements this.
+    ///
+    /// It exists so a caller can tell "the foreground changed while I was
+    /// waiting" from "nothing happened". Comparing the identity before and
+    /// after cannot: switching away and back yields the same identity as
+    /// never switching at all, and the two mean opposite things.
+    public long Transitions { get { lock (_lock) return _transitions; } }
 
     public void Record(DateTime atUtc, AppIdentity? app)
     {
         lock (_lock)
         {
             _entries.Add(new Entry(atUtc, app));
+            _transitions++;
             Trim(atUtc);
         }
     }

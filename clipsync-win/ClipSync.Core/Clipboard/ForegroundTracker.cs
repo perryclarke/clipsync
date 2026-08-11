@@ -92,6 +92,16 @@ public sealed class ForegroundTracker : IForegroundSource, IDisposable
     /// returns the app that was in front before it, not ClipSync.
     public AppIdentity? Current => AppAt(DateTime.UtcNow);
 
+    /// Monotonic count of recorded foreground transitions. A caller that
+    /// samples this, waits, and samples again learns whether focus moved at
+    /// all in between -- which `Current` cannot tell it, because switching
+    /// away and back looks identical to never switching.
+    ///
+    /// It stays put if SetWinEventHook failed, which is the right answer:
+    /// with no hook the ring holds only the startup seed, so there is
+    /// nothing trustworthy to capture.
+    public long Transitions => _ring.Transitions;
+
     private void OnForegroundChanged(IntPtr hook, uint evt, IntPtr hwnd,
                                      int idObject, int idChild, uint thread, uint time)
     {

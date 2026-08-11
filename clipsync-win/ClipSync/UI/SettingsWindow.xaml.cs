@@ -178,10 +178,41 @@ public sealed partial class SettingsWindow : Window
 
         try
         {
+            // Sampled before the countdown so we can tell afterwards whether
+            // focus moved at all. See the check below.
+            var transitionsBefore = App.Current.Foreground.Transitions;
+
             for (var left = CaptureSeconds; left > 0; left--)
             {
                 CaptureStatus.Text = $"Switch to the app you want to exclude… {left}";
                 await Task.Delay(TimeSpan.FromSeconds(1), cts.Token);
+            }
+
+            // The window can close during that last second: Cancel() then
+            // raises nothing, and without this the code below would persist
+            // an exclusion and only afterwards throw on a torn-down element,
+            // logging a failure for an add that actually happened.
+            if (_closed) return;
+
+            // Nothing focused during the countdown means the user watched it
+            // run without switching. The hook is registered
+            // WINEVENT_SKIPOWNPROCESS, so ClipSync's own windows never enter
+            // the ring and `Current` would hand back whatever was in front
+            // before the settings window -- realistically explorer.exe, since
+            // getting here means clicking the tray and then Settings.
+            // Excluding that would silently stop syncing every File Explorer
+            // and desktop copy, with nothing tying cause to effect.
+            //
+            // Counting transitions rather than comparing identities is what
+            // makes this exact: switching away and back records two, never
+            // switching records none, and those are indistinguishable by
+            // identity alone.
+            if (App.Current.Foreground.Transitions == transitionsBefore)
+            {
+                CaptureStatus.Text = "Nothing added — switch to the app you want to exclude " +
+                                     "while the countdown is running, then try again.";
+                Security.Identity.Log("Settings: capture saw no foreground change; added nothing");
+                return;
             }
 
             var app = App.Current.Foreground.Current;

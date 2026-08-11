@@ -89,6 +89,47 @@ public class ForegroundRingTests
     }
 
     [Fact]
+    public void TransitionsCountsEveryRecordIncludingUnresolvableOnes()
+    {
+        var ring = new ForegroundRing();
+        Assert.Equal(0, ring.Transitions);
+
+        ring.Record(T0, App("a"));
+        Assert.Equal(1, ring.Transitions);
+
+        // An unresolvable window is still a focus change: the settings
+        // window's capture must see it, or watching the countdown next to an
+        // app it cannot identify would look like never having switched.
+        ring.Record(T0.AddSeconds(1), null);
+        Assert.Equal(2, ring.Transitions);
+    }
+
+    [Fact]
+    public void TransitionsCountsARepeatOfTheSameApp()
+    {
+        // The whole point of counting rather than comparing identities:
+        // switching away and back must be distinguishable from not moving.
+        var ring = new ForegroundRing();
+        ring.Record(T0, App("a"));
+        ring.Record(T0.AddSeconds(1), App("b"));
+        ring.Record(T0.AddSeconds(2), App("a"));
+
+        Assert.Equal(App("a"), ring.AppAt(T0.AddSeconds(3)));
+        Assert.Equal(3, ring.Transitions);
+    }
+
+    [Fact]
+    public void TransitionsKeepsCountingPastEviction()
+    {
+        // Monotonic: it counts what happened, not what is still retained.
+        var ring = new ForegroundRing();
+        var total = ForegroundRing.MaxEntries + 5;
+        for (int i = 0; i < total; i++) ring.Record(T0.AddSeconds(i), App("app" + i));
+
+        Assert.Equal(total, ring.Transitions);
+    }
+
+    [Fact]
     public void SoleEntryIsNotEvictedByAgeAlone()
     {
         // A user who has stayed in one app for an hour must still resolve.
