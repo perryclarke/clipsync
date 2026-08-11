@@ -272,7 +272,7 @@ Every failure path falls open and logs **once**, not per copy.
 | Failure | Behaviour |
 |---|---|
 | `SetWinEventHook` fails | Tracker permanently returns null; everything transmits; one startup log line |
-| Elevated app in foreground | `QueryFullProcessImageName` is denied to a non-elevated process → null → transmits. **A stated limitation: apps running elevated cannot be excluded.** |
+| Process image / package lookup fails | `OpenProcess`/`QueryFullProcessImageName`/`GetPackageFamilyName` return a failure → null → transmits. This is known to cover protected/system processes and PID-teardown races. **Open question, not yet verified: does it also cover ordinary UAC-elevated apps?** `PROCESS_QUERY_LIMITED_INFORMATION` was specifically designed to let a medium-integrity caller query a higher-integrity process's image path, so elevated apps may resolve fine — nothing has measured this either way. Confirm empirically (elevate a foreground app, exclude it, copy) before documenting elevation as covered or not covered. |
 | AppsFolder enumeration fails | Picker degrades to `Browse…` only, with an inline message |
 | `settings.json` corrupt or unreadable | Empty exclusion list, logged |
 | Icon extraction fails | Placeholder icon; entry still selectable |

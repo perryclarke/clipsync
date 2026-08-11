@@ -18,9 +18,10 @@ Clipboard History / Win+V).
   Apps can be excluded from sync: open the tray menu → **Settings…** →
   **Add app…** and pick from the installed-app list. Anything copied while
   an excluded app is in the foreground stays local — it is still placed in
-  your own clipboard and Win+V history, but never sent to a peer. Apps
-  running elevated cannot be excluded, because a non-elevated ClipSync
-  cannot identify them.
+  your own clipboard and Win+V history, but never sent to a peer. If
+  ClipSync cannot identify the foreground app — some system and protected
+  processes cannot be inspected — the item is treated as not excluded and
+  is synced.
 
 ## Known gaps
 
