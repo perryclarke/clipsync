@@ -17,6 +17,7 @@
                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                        FontSize="13"/>
             <MenuFlyoutSeparator/>
+            <Button Content="Settings…" Click="OnSettings" HorizontalAlignment="Stretch"/>
             <Button Content="Quit" Click="OnQuit" HorizontalAlignment="Stretch"/>
         </StackPanel>
     </Border>

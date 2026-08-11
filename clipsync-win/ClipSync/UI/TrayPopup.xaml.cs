@@ -153,7 +153,8 @@ public sealed partial class TrayPopup : Window
 
         // Compute height to fit content: header + DID + separator + peers + separator + button + padding.
         int rows = Math.Max(_peerCount, 1); // at least 1 for "Looking for peers..." text
-        int contentHeight = (int)((24 + 18 + 1 + (rows * 28) + 1 + 36 + 60) * scale);
+        // header + DID + separator + peers + separator + 2 buttons + padding
+        int contentHeight = (int)((24 + 18 + 1 + (rows * 28) + 1 + 36 + 36 + 8 + 60) * scale);
         int w = (int)(300 * scale), h = contentHeight;
 
         // Position: above the taskbar with a gap, centered on cursor X.
@@ -181,6 +182,14 @@ public sealed partial class TrayPopup : Window
     private void Hide()
     {
         _appWindow.Hide();
+    }
+
+    private void OnSettings(object sender, RoutedEventArgs e)
+    {
+        // Hide first: this popup dismisses itself on deactivation, so the
+        // settings window stealing focus would close it anyway.
+        Hide();
+        SettingsWindow.ShowSingleton();
     }
 
     private void OnQuit(object sender, RoutedEventArgs e)
