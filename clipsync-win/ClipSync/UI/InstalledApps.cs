@@ -188,7 +188,15 @@ public static class InstalledApps
             // there is nothing to block the UI thread on (unlike the
             // DataWriter/InMemoryRandomAccessStream route this replaced,
             // which blocked on StoreAsync().GetAwaiter().GetResult()).
-            using var stream = new MemoryStream(png).AsRandomAccessStream();
+            //
+            // Deliberately NOT disposed: SetSource's synchronous signature
+            // does not guarantee the decode has finished reading the stream
+            // by the time it returns — decoding completes asynchronously
+            // under the hood. Disposing here races the decoder and can hit
+            // a disposed stream, failing the image load. The BitmapImage
+            // holds the only reference; it (and the stream) become
+            // collectible once the image itself is no longer referenced.
+            var stream = new MemoryStream(png).AsRandomAccessStream();
             var image = new BitmapImage();
             image.SetSource(stream);
             return image;
