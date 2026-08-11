@@ -2112,7 +2112,9 @@ In `clipsync-win/ClipSync/UI/SettingsWindow.xaml.cs`, replace `OnAddApp` with:
 
             App.Current.Settings.Add(picked);
             Security.Identity.Log($"Settings: added exclusion {picked.DisplayName}");
-            RefreshList();
+            // RefreshList became Task-returning in Task 7 (icon prefetch moved
+            // off the UI thread), so it must be awaited.
+            await RefreshList();
         }
         catch (Exception ex)
         {
