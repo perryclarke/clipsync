@@ -30,3 +30,6 @@ Thumbs.db
 
 # Per-machine Claude Code config (hardcoded local paths/permissions)
 .claude/settings.local.json
+
+# Claude Code worktrees — scratch checkouts, not repository content
+.claude/worktrees/
