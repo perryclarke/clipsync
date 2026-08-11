@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Makaretu.Dns;
@@ -66,6 +67,14 @@ public sealed class Discovery
         // tunnel so LAN peers are never discovered. The filter drops tunnel /
         // VPN adapters so discovery keeps working with a VPN active.
         var mdns = new MulticastService(SelectInterfaces);
+        // Makaretu binds each sender socket to a NIC's source address but never
+        // pins the multicast EGRESS interface (IP_MULTICAST_IF). When a VPN's
+        // interface has a lower metric than the LAN NIC, Windows sends mDNS out
+        // the tunnel regardless of the source binding, so LAN peers never hear
+        // us (and we never hear their responses). Force each sender's egress
+        // onto its own interface. Re-applied whenever Makaretu (re)builds its
+        // interface set.
+        mdns.NetworkInterfaceDiscovered += (_, _) => ForceMulticastEgress(mdns);
         var sd = new ServiceDiscovery(mdns);
 
         // Publish only addresses a LAN peer can actually reach. Left to itself,
@@ -117,6 +126,65 @@ public sealed class Discovery
         var result = kept.Count > 0 ? kept : all;
         Identity.Log($"Discovery: mDNS bound to [{string.Join(", ", result.Select(k => k.Name))}]");
         return result;
+    }
+
+    /// Pin the multicast egress interface on each of Makaretu's sender sockets
+    /// to the interface the sender is bound to, via IP_MULTICAST_IF /
+    /// IPV6_MULTICAST_IF. Reaches the sockets by reflection (Makaretu doesn't
+    /// expose them). Guarded — a failure just leaves egress at the OS default.
+    private static void ForceMulticastEgress(MulticastService mdns)
+    {
+        try
+        {
+            var client = typeof(MulticastService)
+                .GetField("client", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(mdns);
+            if (client is null) return;
+            if (client.GetType().GetField("senders", BindingFlags.NonPublic | BindingFlags.Instance)?
+                    .GetValue(client) is not System.Collections.IDictionary senders) return;
+
+            foreach (System.Collections.DictionaryEntry entry in senders)
+            {
+                var addr = (IPAddress)entry.Key;
+                var sock = ((UdpClient)entry.Value).Client;
+                try
+                {
+                    var (v4idx, v6idx) = InterfaceIndexFor(addr);
+                    if (addr.AddressFamily == AddressFamily.InterNetwork && v4idx >= 0)
+                    {
+                        // IP_MULTICAST_IF: interface index in network byte order.
+                        sock.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface,
+                            IPAddress.HostToNetworkOrder(v4idx));
+                        Identity.Log($"Discovery: pinned mcast egress -> {addr} (if {v4idx})");
+                    }
+                    else if (addr.AddressFamily == AddressFamily.InterNetworkV6 && v6idx >= 0)
+                    {
+                        // IPV6_MULTICAST_IF: interface index in host byte order.
+                        sock.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.MulticastInterface, v6idx);
+                        Identity.Log($"Discovery: pinned mcast egress -> {addr} (if {v6idx})");
+                    }
+                }
+                catch (Exception ex) { Identity.Log($"Discovery: pin egress {addr} failed: {ex.Message}"); }
+            }
+        }
+        catch (Exception ex) { Identity.Log($"Discovery: ForceMulticastEgress failed: {ex.Message}"); }
+    }
+
+    /// (IPv4 index, IPv6 index) of the interface owning addr, or -1 each.
+    private static (int v4, int v6) InterfaceIndexFor(IPAddress addr)
+    {
+        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            var props = ni.GetIPProperties();
+            foreach (var ua in props.UnicastAddresses)
+                if (ua.Address.Equals(addr))
+                {
+                    int v4 = -1, v6 = -1;
+                    try { v4 = props.GetIPv4Properties().Index; } catch { }
+                    try { v6 = props.GetIPv6Properties().Index; } catch { }
+                    return (v4, v6);
+                }
+        }
+        return (-1, -1);
     }
 
     private static bool LooksLikeVpn(NetworkInterface ni)
