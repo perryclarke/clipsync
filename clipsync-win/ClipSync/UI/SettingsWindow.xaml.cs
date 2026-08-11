@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
@@ -84,8 +85,22 @@ public sealed partial class SettingsWindow : Window
         return row;
     }
 
-    private void OnAddApp(object sender, RoutedEventArgs e)
+    private async void OnAddApp(object sender, RoutedEventArgs e)
     {
-        // Replaced in Task 8 by the app picker.
+        try
+        {
+            var picked = await AppPickerDialog.PickAsync(Content.XamlRoot, this);
+            if (picked is null) return;
+
+            App.Current.Settings.Add(picked);
+            Security.Identity.Log($"Settings: added exclusion {picked.DisplayName}");
+            // RefreshList became Task-returning in Task 7 (icon prefetch moved
+            // off the UI thread), so it must be awaited.
+            await RefreshList();
+        }
+        catch (Exception ex)
+        {
+            Security.Identity.Log($"Settings: add failed: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 }

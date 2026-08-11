@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="ClipSync.UI.AppPickerDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Add an app to exclude"
+    PrimaryButtonText="Add"
+    SecondaryButtonText="Browse…"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary">
+    <Grid RowSpacing="8" Height="420" Width="420">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBox Grid.Row="0" x:Name="SearchBox" PlaceholderText="Search apps"
+                 TextChanged="OnSearchChanged"/>
+
+        <Grid Grid.Row="1">
+            <ListView x:Name="AppList" SelectionMode="Single"/>
+            <ProgressRing x:Name="Busy" IsActive="True"
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <TextBlock x:Name="ErrorText" Visibility="Collapsed" TextWrapping="Wrap"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                       Text="Could not read the installed-app list. Use Browse… to pick an .exe instead."/>
+        </Grid>
+    </Grid>
+</ContentDialog>
