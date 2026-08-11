@@ -1402,7 +1402,18 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `AppIdentity`, `AppKind`.
-- Produces: `ClipSync.UI.InstalledApp` — `sealed record InstalledApp(AppIdentity Identity, Microsoft.UI.Xaml.Media.ImageSource? Icon)`; `ClipSync.UI.InstalledApps` with `static IReadOnlyList<InstalledApp> Enumerate()` (call off the UI thread) and `static AppIdentity FromExecutable(string exePath)`.
+- Produces: `ClipSync.UI.InstalledApp` — `sealed record InstalledApp(AppIdentity Identity, byte[]? IconPng)`; `ClipSync.UI.InstalledApps` with:
+  - `static IReadOnlyList<InstalledApp> Enumerate(CancellationToken ct = default)` — background-thread safe, touches no WinUI type
+  - `static AppIdentity FromExecutable(string exePath)`
+  - `static byte[]? IconBytesForExecutable(string exePath)` — background-thread safe
+  - `static ImageSource? ToImageSource(byte[]? png)` — **UI thread only**
+
+> **Interface revised after the Task 6 review** (authorised 2026-08-09). The
+> original design had `Enumerate()` build WinUI `BitmapImage` objects on a
+> background thread. `BitmapImage` is a `DependencyObject` with UI-thread
+> affinity, so that throws `RPC_E_WRONG_THREAD` into a swallowing catch and
+> yields an iconless list. Icons now cross the thread boundary as PNG bytes
+> and are converted on the UI thread at the point of use.
 
 This lives in the app project, not Core: it produces WinUI `ImageSource` values and is verified manually rather than by unit test.
 
@@ -1717,7 +1728,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Modify: `clipsync-win/ClipSync/UI/TrayPopup.xaml.cs`
 
 **Interfaces:**
-- Consumes: `App.Settings`, `AppIdentity`, `InstalledApps.IconForExecutable`.
+- Consumes: `App.Settings`, `AppIdentity`, `InstalledApps.IconBytesForExecutable`, `InstalledApps.ToImageSource`.
 - Produces: `ClipSync.UI.SettingsWindow` with `static void ShowSingleton()` and `void RefreshList()` (called by Task 8 after a successful add).
 
 - [ ] **Step 1: Create the window markup**
@@ -1811,7 +1822,8 @@ public sealed partial class SettingsWindow : Window
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var icon = new Image { Width = 24, Height = 24, VerticalAlignment = VerticalAlignment.Center };
-        if (app.Path is { } p) icon.Source = InstalledApps.IconForExecutable(p);
+        // Both calls are UI-thread-safe here; ToImageSource requires it.
+        if (app.Path is { } p) icon.Source = InstalledApps.ToImageSource(InstalledApps.IconBytesForExecutable(p));
         Grid.SetColumn(icon, 0);
         row.Children.Add(icon);
 
@@ -1921,7 +1933,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Modify: `clipsync-win/ClipSync/UI/SettingsWindow.xaml.cs` (`OnAddApp`)
 
 **Interfaces:**
-- Consumes: `InstalledApps.Enumerate()`, `InstalledApps.FromExecutable`, `App.Settings`.
+- Consumes: `InstalledApps.Enumerate(CancellationToken)`, `InstalledApps.FromExecutable`, `InstalledApps.ToImageSource`, `App.Settings`.
 - Produces: `ClipSync.UI.AppPickerDialog` with `static Task<AppIdentity?> PickAsync(XamlRoot root)`.
 
 - [ ] **Step 1: Create the dialog markup**
@@ -2011,7 +2023,8 @@ public sealed partial class AppPickerDialog : ContentDialog
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         // Enumeration plus icon rasterising is too slow for the UI thread.
-        var apps = await Task.Run(InstalledApps.Enumerate);
+        // (Lambda, not a method group: Enumerate has an optional parameter.)
+        var apps = await Task.Run(() => InstalledApps.Enumerate());
 
         // An empty result means enumeration failed; a list that is empty
         // only after filtering just means everything is already excluded.
@@ -2044,7 +2057,8 @@ public sealed partial class AppPickerDialog : ContentDialog
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
             row.Children.Add(new Image
             {
-                Width = 24, Height = 24, Source = app.Icon,
+                // Populate runs on the UI thread, which ToImageSource requires.
+                Width = 24, Height = 24, Source = InstalledApps.ToImageSource(app.IconPng),
                 VerticalAlignment = VerticalAlignment.Center,
             });
             row.Children.Add(new TextBlock
