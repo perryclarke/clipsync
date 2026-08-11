@@ -10,6 +10,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0" Text="Excluded apps" FontSize="20" FontWeight="SemiBold"/>
@@ -29,7 +30,18 @@
                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Grid>
 
-        <Button Grid.Row="3" x:Name="AddButton" Content="Add app…" Click="OnAddApp"
-                HorizontalAlignment="Left"/>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+            <Button x:Name="AddButton" Content="Add app…" Click="OnAddApp"/>
+            <!-- Captures through the same resolver the clipboard watcher
+                 consults, so what it stores is by construction what
+                 copy-time matching will see. The picker keys a Win32 app on
+                 its Start Menu shortcut's target, which for launcher-based
+                 apps is not the executable that owns the foreground window. -->
+            <Button x:Name="CaptureButton" Content="Exclude current app…"
+                    Click="OnCaptureCurrentApp"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="4" x:Name="CaptureStatus" TextWrapping="Wrap" Text=""
+                   Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
     </Grid>
 </Window>
