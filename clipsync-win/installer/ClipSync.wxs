@@ -12,7 +12,12 @@
 
     <SummaryInformation Description="ClipSync — cross-platform clipboard sync" />
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of ClipSync is already installed." />
+    <!-- Remove the old version BEFORE installing the new one. The default
+         (afterInstallExecute) removes the old product after install, which
+         deletes the unversioned apphost ClipSync.exe (its version lives in
+         ClipSync.dll), leaving a broken install on upgrade. -->
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer version of ClipSync is already installed." />
 
     <MediaTemplate EmbedCab="yes" />
 
