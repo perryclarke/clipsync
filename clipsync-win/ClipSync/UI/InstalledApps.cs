@@ -3,13 +3,17 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using ClipSync.Settings;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace ClipSync.UI;
 
-public sealed record InstalledApp(AppIdentity Identity, ImageSource? Icon);
+/// `IconPng` is raw PNG bytes, not a WinUI type: `Enumerate` runs on a
+/// background thread, and `BitmapImage` has hard UI-thread affinity. Convert
+/// with `InstalledApps.ToImageSource` on the UI thread when displaying.
+public sealed record InstalledApp(AppIdentity Identity, byte[]? IconPng);
 
 /// Enumerates the shell's AppsFolder — the same list Start > All apps
 /// shows, covering both desktop and Store apps.
@@ -20,8 +24,9 @@ public sealed record InstalledApp(AppIdentity Identity, ImageSource? Icon);
 public static class InstalledApps
 {
     /// Blocking: enumerating and rasterising a few hundred icons takes
-    /// roughly 200-500 ms. Call from a background thread.
-    public static IReadOnlyList<InstalledApp> Enumerate()
+    /// roughly 200-500 ms. Call from a background thread. No WinUI types are
+    /// touched here — see `InstalledApp.IconPng`.
+    public static IReadOnlyList<InstalledApp> Enumerate(CancellationToken ct = default)
     {
         var results = new List<InstalledApp>();
         var seen = new HashSet<AppIdentity>();
@@ -45,7 +50,7 @@ public static class InstalledApps
             }
 
             var buffer = new IShellItem[1];
-            while (items.Next(1, buffer, out var fetched) == 0 && fetched == 1)
+            while (!ct.IsCancellationRequested && items.Next(1, buffer, out var fetched) == 0 && fetched == 1)
             {
                 var item = buffer[0];
                 try
@@ -118,7 +123,16 @@ public static class InstalledApps
         catch { return null; }
     }
 
-    private static ImageSource? IconOf(IShellItem item)
+    /// Rasterises the shell item's 32px icon to PNG bytes.
+    ///
+    /// `GetImage` returns an HBITMAP backed by a top-down 32bpp
+    /// premultiplied-ARGB DIB section. `Image.FromHbitmap` would discard
+    /// that alpha channel (yielding `Format32bppRgb` — transparent pixels
+    /// bake in as black), so instead we read the DIB's raw bits via
+    /// `GetObject`/`BITMAP` and wrap them as `Format32bppPArgb`, then clone
+    /// into GDI+-owned memory before the HBITMAP (and its backing bits) are
+    /// freed in `finally`.
+    private static byte[]? IconOf(IShellItem item)
     {
         if (item is not IShellItemImageFactory factory) return null;
         var hbitmap = IntPtr.Zero;
@@ -128,17 +142,24 @@ public static class InstalledApps
                 || hbitmap == IntPtr.Zero)
                 return null;
 
-            using var bmp = System.Drawing.Image.FromHbitmap(hbitmap);
+            var info = new BITMAP();
+            if (GetObject(hbitmap, Marshal.SizeOf<BITMAP>(), ref info) == 0 || info.bmBits == IntPtr.Zero)
+                return null;
+
+            using var view = new System.Drawing.Bitmap(info.bmWidth, info.bmHeight, info.bmWidthBytes,
+                System.Drawing.Imaging.PixelFormat.Format32bppPArgb, info.bmBits);
+            using var owned = new System.Drawing.Bitmap(view); // deep-copies pixel data
             using var ms = new MemoryStream();
-            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-            return FromPngBytes(ms.ToArray());
+            owned.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            return ms.ToArray();
         }
         catch { return null; }
         finally { if (hbitmap != IntPtr.Zero) DeleteObject(hbitmap); }
     }
 
-    /// Icons for browsed executables, which have no shell item.
-    public static ImageSource? IconForExecutable(string exePath)
+    /// Icon PNG bytes for browsed executables, which have no shell item.
+    /// Background-thread safe, like `Enumerate`.
+    public static byte[]? IconBytesForExecutable(string exePath)
     {
         try
         {
@@ -147,22 +168,32 @@ public static class InstalledApps
             using var bmp = icon.ToBitmap();
             using var ms = new MemoryStream();
             bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-            return FromPngBytes(ms.ToArray());
+            return ms.ToArray();
         }
         catch { return null; }
     }
 
-    private static ImageSource FromPngBytes(byte[] png)
+    /// Converts icon PNG bytes into a WinUI `ImageSource`.
+    ///
+    /// UI THREAD ONLY: `BitmapImage` is a `DependencyObject` with hard
+    /// UI-thread affinity. This is the single conversion point between the
+    /// background-thread-safe byte[] results of `Enumerate`/
+    /// `IconBytesForExecutable` and the visual tree.
+    public static ImageSource? ToImageSource(byte[]? png)
     {
-        var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
-        using (var writer = new Windows.Storage.Streams.DataWriter(stream.GetOutputStreamAt(0)))
+        if (png is null || png.Length == 0) return null;
+        try
         {
-            writer.WriteBytes(png);
-            writer.StoreAsync().AsTask().GetAwaiter().GetResult();
+            // Synchronous wrap — no WinRT async operation is involved, so
+            // there is nothing to block the UI thread on (unlike the
+            // DataWriter/InMemoryRandomAccessStream route this replaced,
+            // which blocked on StoreAsync().GetAwaiter().GetResult()).
+            using var stream = new MemoryStream(png).AsRandomAccessStream();
+            var image = new BitmapImage();
+            image.SetSource(stream);
+            return image;
         }
-        var image = new BitmapImage();
-        image.SetSource(stream);
-        return image;
+        catch { return null; }
     }
 
     // ---- COM interop ----
@@ -189,6 +220,18 @@ public static class InstalledApps
 
     [StructLayout(LayoutKind.Sequential)]
     private struct PROPERTYKEY { public Guid fmtid; public uint pid; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAP
+    {
+        public int bmType;
+        public int bmWidth;
+        public int bmHeight;
+        public int bmWidthBytes;
+        public ushort bmPlanes;
+        public ushort bmBitsPixel;
+        public IntPtr bmBits;
+    }
 
     [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"),
      InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -251,4 +294,7 @@ public static class InstalledApps
 
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr hObject);
+
+    [DllImport("gdi32.dll")]
+    private static extern int GetObject(IntPtr hgdiobj, int cbBuffer, ref BITMAP lpvObject);
 }
