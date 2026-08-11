@@ -96,10 +96,11 @@ public sealed class ClipboardWatcher
             // Suppress transmission only — the item is already in the
             // local clipboard and Win+V, and we deliberately leave it
             // there. An unresolved source app falls open and is sent.
-            var source = _foreground.AppAt(copiedAt);
-            if (source is not null && _settings.IsExcluded(source))
+            // The decision itself lives in Core so it can be tested; this
+            // call site only logs and returns.
+            if (SuppressionPolicy.ShouldSuppress(_foreground, _settings, copiedAt, out var source))
             {
-                Identity.Log($"ClipboardWatcher: suppressed item from {source.DisplayName} " +
+                Identity.Log($"ClipboardWatcher: suppressed item from {source!.DisplayName} " +
                              $"({item.Formats.Count} formats)");
                 return;
             }

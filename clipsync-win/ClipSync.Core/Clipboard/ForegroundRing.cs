@@ -10,7 +10,7 @@ namespace ClipSync.Clipboard;
 /// the watcher has an item the user may already have switched apps.
 /// Recording transitions as they happen lets the watcher ask what was in
 /// front at the moment of the copy rather than at the moment of handling.
-public sealed class ForegroundRing
+public sealed class ForegroundRing : IForegroundSource
 {
     public const int MaxEntries = 16;
     public static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(2);

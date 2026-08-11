@@ -11,7 +11,7 @@ namespace ClipSync.Clipboard;
 /// WINEVENT_OUTOFCONTEXT callbacks are delivered on the message loop of
 /// the thread that registered the hook, and UnhookWinEvent must run on
 /// that same thread.
-public sealed class ForegroundTracker : IDisposable
+public sealed class ForegroundTracker : IForegroundSource, IDisposable
 {
     private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
@@ -81,6 +81,16 @@ public sealed class ForegroundTracker : IDisposable
     public void Dispose() => Stop();
 
     public AppIdentity? AppAt(DateTime utc) => _ring.AppAt(utc);
+
+    /// Whatever is in front right now, read from the same ring the clipboard
+    /// watcher consults. The settings UI's "exclude the app I'm using now"
+    /// affordance goes through here rather than resolving a window itself,
+    /// so what it stores is by construction what copy-time matching sees.
+    ///
+    /// Note the hook is registered WINEVENT_SKIPOWNPROCESS, so ClipSync's own
+    /// windows never enter the ring: with the settings window focused this
+    /// returns the app that was in front before it, not ClipSync.
+    public AppIdentity? Current => AppAt(DateTime.UtcNow);
 
     private void OnForegroundChanged(IntPtr hook, uint evt, IntPtr hwnd,
                                      int idObject, int idChild, uint thread, uint time)
