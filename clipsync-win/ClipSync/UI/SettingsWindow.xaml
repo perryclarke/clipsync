@@ -3,45 +3,130 @@
     x:Class="ClipSync.UI.SettingsWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:ui="using:ClipSync.UI"
     Title="ClipSync Settings">
-    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="20" RowSpacing="12">
+
+    <!-- No Background here: the constructor applies Mica when the OS supports
+         it, and only falls back to painting an opaque page brush when it does
+         not. Setting one in XAML would hide the backdrop. -->
+    <Grid x:Name="Root">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Excluded apps" FontSize="20" FontWeight="SemiBold"/>
-
-        <TextBlock Grid.Row="1" TextWrapping="Wrap"
-                   Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                   Text="Items copied while these apps are in the foreground are not sent to your other devices."/>
-
-        <Grid Grid.Row="2">
-            <ListView x:Name="ExcludedList" SelectionMode="None"
-                      Background="{ThemeResource LayerFillColorDefaultBrush}"
-                      BorderBrush="{ThemeResource SystemControlForegroundBaseMediumLowBrush}"
-                      BorderThickness="1" CornerRadius="4"/>
-            <TextBlock x:Name="EmptyText"
-                       Text="No apps excluded. Everything you copy is synced."
-                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <!-- The window's content is extended into the title bar, so this strip
+             stands in for it: SetTitleBar hands it to the system as the drag
+             region, and the caption buttons draw over its right-hand end.
+             Its Height and Padding are both overwritten in the constructor
+             from the system title bar's real metrics; the values here are
+             only what the designer shows. Centring the title in a strip
+             taller than the caption buttons is what pushes it out of line
+             with them. -->
+        <Grid x:Name="TitleBarDrag" Grid.Row="0" Height="32" Padding="16,0,144,0">
+            <!-- The bottom margin is an optical correction, not padding.
+                 VerticalAlignment centres the line box, and Segoe UI's line
+                 box carries more room above the cap height than below the
+                 baseline, so a centred box leaves the letters low: measured
+                 against the caption glyphs, the cap-height band sat 3
+                 physical pixels below their centre. A centred element is
+                 displaced by half its margin, so 4 lifts it by 2 effective
+                 units. TextLineBounds="Tight" is the tidier-looking fix and
+                 was tried first; it moved the text by nothing at all. -->
+            <TextBlock Text="ClipSync Settings" VerticalAlignment="Center"
+                       Margin="0,0,0,4"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       TextTrimming="CharacterEllipsis"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
         </Grid>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
-            <Button x:Name="AddButton" Content="Add app…" Click="OnAddApp"/>
-            <!-- Captures through the same resolver the clipboard watcher
-                 consults, so what it stores is by construction what
-                 copy-time matching will see. The picker keys a Win32 app on
-                 its Start Menu shortcut's target, which for launcher-based
-                 apps is not the executable that owns the foreground window. -->
-            <Button x:Name="CaptureButton" Content="Exclude current app…"
-                    Click="OnCaptureCurrentApp"/>
-        </StackPanel>
+        <!-- Settings pages scroll: the excluded list has no upper bound, and
+             the alternative is a nested scroller inside a fixed-height box,
+             which is the pattern Windows 11 settings deliberately avoids. -->
+        <ScrollViewer Grid.Row="1" Padding="20,12,20,16"
+                      VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Privacy"
+                           Style="{StaticResource BodyStrongTextBlockStyle}"
+                           Margin="0,0,0,4"
+                           AutomationProperties.HeadingLevel="Level1"/>
 
-        <TextBlock Grid.Row="4" x:Name="CaptureStatus" TextWrapping="Wrap" Text=""
-                   Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                <controls:SettingsExpander x:Name="ExcludedExpander"
+                        Header="Excluded apps"
+                        Description="Items copied while these apps are in the foreground are not sent to your other devices."
+                        IsExpanded="True">
+                    <controls:SettingsExpander.HeaderIcon>
+                        <FontIcon Glyph="&#xE72E;"/>
+                    </controls:SettingsExpander.HeaderIcon>
+
+                    <controls:SettingsExpander.ItemsHeader>
+                        <!-- Shown only when there is nothing below it. An
+                             expander that opens onto nothing reads as a bug. -->
+                        <TextBlock x:Name="EmptyText" Visibility="Collapsed"
+                                   Margin="56,14,16,14" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="No apps excluded. Everything you copy is synced."/>
+                    </controls:SettingsExpander.ItemsHeader>
+
+                    <controls:SettingsExpander.ItemsFooter>
+                        <!-- The action lives after the list, the way "Add a
+                             device" does in Windows Settings, rather than in
+                             the expander's header slot: that slot stacks its
+                             content under the description at this window's
+                             width, which reads as a stray button. -->
+                        <!-- No DefaultSettingsExpanderItemStyle here: that key
+                             lives inside the toolkit's own dictionary and does
+                             not resolve from an app page, which fails the
+                             parse at runtime rather than at build. -->
+                        <controls:SettingsCard Header="Add an app to this list">
+                            <!-- Two ways in, one control: picking from the
+                                 installed list is the obvious path, but it
+                                 keys an app on its Start Menu shortcut target,
+                                 which for launcher-based apps is not the
+                                 executable that owns the foreground window.
+                                 Capture is the escape hatch for those. -->
+                            <DropDownButton x:Name="AddButton" Content="Add app"
+                                            AutomationProperties.Name="Add app to the excluded list">
+                                <DropDownButton.Flyout>
+                                    <MenuFlyout Placement="Bottom">
+                                        <MenuFlyoutItem Text="Choose an installed app…" Click="OnAddApp">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE71D;"/>
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutItem x:Name="CaptureItem"
+                                                        Text="Exclude the app I switch to…"
+                                                        Click="OnCaptureCurrentApp">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE890;"/>
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                    </MenuFlyout>
+                                </DropDownButton.Flyout>
+                            </DropDownButton>
+                        </controls:SettingsCard>
+                    </controls:SettingsExpander.ItemsFooter>
+
+                    <controls:SettingsExpander.ItemTemplate>
+                        <DataTemplate x:DataType="ui:ExcludedAppRow">
+                            <controls:SettingsCard Header="{x:Bind Name}"
+                                                   HeaderIcon="{x:Bind HeaderIcon}"
+                                                   Description="{x:Bind Detail}">
+                                <Button Click="OnRemove"
+                                        AutomationProperties.Name="{x:Bind RemoveLabel}"
+                                        ToolTipService.ToolTip="{x:Bind RemoveLabel}">
+                                    <FontIcon Glyph="&#xE74D;" FontSize="14"/>
+                                </Button>
+                            </controls:SettingsCard>
+                        </DataTemplate>
+                    </controls:SettingsExpander.ItemTemplate>
+                </controls:SettingsExpander>
+            </StackPanel>
+        </ScrollViewer>
+
+        <InfoBar Grid.Row="2" x:Name="CaptureStatus"
+                 Margin="20,0,20,16" IsOpen="False" IsClosable="True"/>
     </Grid>
 </Window>
