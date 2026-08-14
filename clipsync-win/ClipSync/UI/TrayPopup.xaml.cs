@@ -4,6 +4,8 @@ using System.Runtime.InteropServices;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using ClipSync.Net;
@@ -33,9 +35,44 @@ public sealed partial class TrayPopup : Window
 
         Activated += (_, e) =>
         {
-            if (e.WindowActivationState == WindowActivationState.Deactivated)
-                Hide();
+            if (e.WindowActivationState != WindowActivationState.Deactivated) return;
+
+            // Losing focus to another app dismisses this popup, as a tray
+            // flyout should. Losing it to one of our own windows does not:
+            // that is the settings window opening beside us, and the whole
+            // point of placing it beside us is that both stay on screen.
+            if (ForegroundIsOurs()) return;
+
+            // The check above is not enough on its own. Activating the
+            // settings window makes this one deactivate, but Windows sets the
+            // new foreground asynchronously, so the deactivation can arrive
+            // while GetForegroundWindow still names somebody else -- and then
+            // the popup vanishes exactly when it was meant to stay. A short
+            // grace period after the click covers that gap without leaving a
+            // latch that could strand the popup on screen: it expires on its
+            // own whether or not the race happened.
+            if (DateTime.UtcNow - _settingsOpenedAt < SettingsFocusGrace) return;
+
+            Hide();
         };
+    }
+
+    /// True when the window now in front belongs to this process.
+    private static bool ForegroundIsOurs()
+    {
+        try
+        {
+            var hwnd = GetForegroundWindow();
+            if (hwnd == IntPtr.Zero) return false;
+            GetWindowThreadProcessId(hwnd, out var pid);
+            return pid == (uint)Environment.ProcessId;
+        }
+        catch
+        {
+            // Unknowable means "not ours", which keeps the old
+            // dismiss-on-deactivate behaviour rather than a stuck popup.
+            return false;
+        }
     }
 
     public static void Toggle()
@@ -66,77 +103,92 @@ public sealed partial class TrayPopup : Window
         foreach (var peer in peers)
         {
             Identity.Log($"  peer: {peer.Name} state={peer.State}");
-            switch (peer.State)
-            {
-                case PeerState.Online:
-                {
-                    var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-                    row.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse
-                    {
-                        Width = 8, Height = 8, Fill = new SolidColorBrush(Colors.LimeGreen),
-                        VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
-                    });
-                    row.Children.Add(new TextBlock { Text = peer.Name, FontSize = 14 });
-                    row.Children.Add(new TextBlock
-                    {
-                        Text = "Online",
-                        FontSize = 12,
-                        Foreground = new SolidColorBrush(Colors.Gray),
-                        VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
-                    });
-                    PeerList.Children.Add(row);
-                    break;
-                }
-                case PeerState.Pending:
-                {
-                    var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-                    row.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse
-                    {
-                        Width = 8, Height = 8, Fill = new SolidColorBrush(Colors.Orange),
-                        VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
-                    });
-                    row.Children.Add(new TextBlock
-                    {
-                        Text = peer.Name, FontSize = 14,
-                        VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
-                    });
-                    var btn = new Button { Content = "Trust", Padding = new Thickness(12, 2, 12, 2) };
-                    var did = peer.DidHex;
-                    var name = peer.Name;
-                    btn.Click += (_, _) =>
-                    {
-                        Identity.Log($"Trust clicked: {name} did={did}");
-                        App.Current.TrustStore.Add(did, name);
-                        App.Current.Discovery.ConnectToPeer(did);
-                    };
-                    row.Children.Add(btn);
-                    PeerList.Children.Add(row);
-                    break;
-                }
-                case PeerState.Offline:
-                {
-                    var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-                    row.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse
-                    {
-                        Width = 8, Height = 8, Fill = new SolidColorBrush(Colors.Gray),
-                        VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
-                    });
-                    row.Children.Add(new TextBlock { Text = peer.Name, FontSize = 14 });
-                    row.Children.Add(new TextBlock
-                    {
-                        Text = "Offline",
-                        FontSize = 12,
-                        Foreground = new SolidColorBrush(Colors.Gray),
-                        VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
-                    });
-                    PeerList.Children.Add(row);
-                    break;
-                }
-            }
+            PeerList.Children.Add(BuildPeerRow(peer));
         }
     }
 
+    /// One peer line: a status dot, the peer's name, and then either the
+    /// status in words or the Trust button a pending peer needs.
+    ///
+    /// The three states were three near-identical copies of this; the only
+    /// thing that ever varied is the tuple below.
+    private UIElement BuildPeerRow(Peer peer)
+    {
+        var (brushKey, fallback, status) = peer.State switch
+        {
+            PeerState.Online  => ("SystemFillColorSuccessBrush", Colors.LimeGreen, "Online"),
+            PeerState.Pending => ("SystemFillColorCautionBrush", Colors.Orange, "Waiting to be trusted"),
+            _                 => ("TextFillColorDisabledBrush", Colors.Gray, "Offline"),
+        };
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+
+        // The dot is decorative: the state is always written out beside it,
+        // so colour never carries meaning on its own -- which is what both a
+        // contrast theme and a colour-blind user need. Marking it Raw keeps a
+        // screen reader from stopping on a shape with nothing to say.
+        var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
+        {
+            Width = 8, Height = 8,
+            Fill = Themed(brushKey, fallback),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        AutomationProperties.SetAccessibilityView(dot, AccessibilityView.Raw);
+        row.Children.Add(dot);
+
+        row.Children.Add(new TextBlock
+        {
+            Text = peer.Name, FontSize = 14,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        if (peer.State == PeerState.Pending)
+        {
+            var did = peer.DidHex;
+            var name = peer.Name;
+            var btn = new Button
+            {
+                Content = "Trust",
+                Padding = new Thickness(12, 2, 12, 2),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            // "Trust" on its own is ambiguous once there are two pending
+            // peers, and trusting the wrong device is not a small mistake.
+            AutomationProperties.SetName(btn, $"Trust {name}");
+            btn.Click += (_, _) =>
+            {
+                Identity.Log($"Trust clicked: {name} did={did}");
+                App.Current.TrustStore.Add(did, name);
+                App.Current.Discovery.ConnectToPeer(did);
+            };
+            row.Children.Add(btn);
+        }
+        else
+        {
+            row.Children.Add(new TextBlock
+            {
+                Text = status, FontSize = 12,
+                Foreground = Themed("TextFillColorSecondaryBrush", Colors.Gray),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+
+        return row;
+    }
+
     private int _peerCount;
+
+    /// A theme brush by key, with a literal fallback.
+    ///
+    /// These rows are built in code, where `{ThemeResource}` isn't available;
+    /// a hard cast would throw on any theme that omits the key, and this runs
+    /// mid-refresh where a throw would leave the popup half-populated.
+    private static Brush Themed(string key, Windows.UI.Color fallback)
+    {
+        if (Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush)
+            return brush;
+        return new SolidColorBrush(fallback);
+    }
 
     private void ShowAtCursor()
     {
@@ -157,23 +209,46 @@ public sealed partial class TrayPopup : Window
         int contentHeight = (int)((24 + 18 + 1 + (rows * 28) + 1 + 36 + 36 + 8 + 60) * scale);
         int w = (int)(300 * scale), h = contentHeight;
 
-        // Position: above the taskbar with a gap, centered on cursor X.
+        // Anchored to the notification area rather than to the cursor: this
+        // opens from a tray icon, which lives in the bottom corner, and that
+        // is where Windows puts its own tray flyouts. Following the cursor
+        // instead put it wherever the pointer happened to be and left a
+        // 200px gap above the taskbar that belonged to nothing.
         var work = displayArea.WorkArea;
-        int gap = (int)(200 * scale);
-        int x = pt.X - w / 2;
-        int y = work.Y + work.Height - h - gap;
+        int margin = (int)(12 * scale);
+        int x = work.X + work.Width - w - margin;
+        int y = work.Y + work.Height - h - margin;
 
-        // Clamp horizontally to work area.
+        // Clamp to the work area for the case of a display narrower than the
+        // popup, where the margin cannot be honoured.
         if (x < work.X) x = work.X;
-        if (x + w > work.X + work.Width) x = work.X + work.Width - w;
+        if (y < work.Y) y = work.Y;
 
-        _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, w, h));
+        var bounds = new Windows.Graphics.RectInt32(x, y, w, h);
+        _appWindow.MoveAndResize(bounds);
         Activate();
         SetForegroundWindow(WindowNative.GetWindowHandle(this));
+
+        // Stored in AppWindow's own coordinates, which is what the settings
+        // window does its arithmetic in. Storing a rectangle read back from
+        // DWM instead was a bug: DWM answers in raw pixels, AppWindow does
+        // not always, and mixing the two threw the settings window onto
+        // another display entirely.
+        _bounds = bounds;
     }
+
+    /// Where this popup was last drawn, in physical pixels, so the settings
+    /// window can sit beside it. Null until it has been shown once.
+    private static Windows.Graphics.RectInt32? _bounds;
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -184,12 +259,19 @@ public sealed partial class TrayPopup : Window
         _appWindow.Hide();
     }
 
+    /// How long after opening settings a deactivation is assumed to be the
+    /// settings window taking focus rather than the user clicking away.
+    private static readonly TimeSpan SettingsFocusGrace = TimeSpan.FromMilliseconds(1500);
+
+    private DateTime _settingsOpenedAt = DateTime.MinValue;
+
     private void OnSettings(object sender, RoutedEventArgs e)
     {
-        // Hide first: this popup dismisses itself on deactivation, so the
-        // settings window stealing focus would close it anyway.
-        Hide();
-        SettingsWindow.ShowSingleton();
+        // Deliberately not hidden: the settings window places itself beside
+        // this popup, and the deactivation handler above knows to leave us
+        // alone when the window taking focus is one of ours.
+        _settingsOpenedAt = DateTime.UtcNow;
+        SettingsWindow.ShowSingleton(_bounds);
     }
 
     private void OnQuit(object sender, RoutedEventArgs e)
