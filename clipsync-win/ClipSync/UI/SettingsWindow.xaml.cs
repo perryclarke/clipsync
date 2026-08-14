@@ -294,9 +294,10 @@ public sealed partial class SettingsWindow : Window
             for (int i = 0; i < excluded.Count; i++)
                 rows.Add(new ExcludedAppRow(excluded[i], icons[i]));
 
-            ExcludedExpander.ItemsSource = rows;
+            ExcludedList.ItemsSource = rows;
+            CapListHeight(rows.Count);
             EmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            ExcludedExpander.Description = rows.Count == 0
+            GroupHeader.Description = rows.Count == 0
                 ? "Items copied while these apps are in the foreground are not sent to your other devices."
                 : $"{rows.Count} app{(rows.Count == 1 ? "" : "s")} excluded. " +
                   "Items copied while they are in the foreground are not sent to your other devices.";
@@ -308,6 +309,51 @@ public sealed partial class SettingsWindow : Window
             Security.Identity.Log($"Settings: refreshing the excluded list failed: " +
                                   $"{ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    /// How many rows the list shows before it starts scrolling. The half is
+    /// the point: a whole number of rows looks like the whole list, and there
+    /// is then nothing on screen to say that scrolling would reveal more.
+    private const double VisibleRows = 2.5;
+
+    /// Nominal row height, used until a real one can be measured. Matches
+    /// SettingsCard's default; a row whose path wraps to two lines is taller.
+    private const double FallbackRowHeight = 68;
+
+    /// Cap the list at `VisibleRows`, measuring a realised row so the cap
+    /// follows the theme's metrics and the actual wrapped height rather than
+    /// a number written here.
+    ///
+    /// The measurement has to wait for a layout pass -- containers do not
+    /// exist the instant ItemsSource is assigned -- so this runs itself again
+    /// off the dispatcher once there is something to measure.
+    private void CapListHeight(int count, int attempt = 0)
+    {
+        if (count == 0)
+        {
+            ExcludedList.MaxHeight = double.PositiveInfinity;
+            return;
+        }
+
+        var row = ExcludedList.ContainerFromIndex(0) as FrameworkElement;
+        var height = row?.ActualHeight ?? 0;
+
+        if (height <= 0)
+        {
+            // Nothing realised yet. Take the nominal height for now so the
+            // window never opens with an uncapped list, and come back once
+            // the layout pass has happened. Bounded, because rescheduling
+            // itself on a condition that never comes true is a spin, not a
+            // retry -- and the fallback below is a perfectly usable answer.
+            ExcludedList.MaxHeight = FallbackRowHeight * VisibleRows;
+            if (attempt < 5)
+                DispatcherQueue.TryEnqueue(
+                    Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                    () => { if (!_closed) CapListHeight(count, attempt + 1); });
+            return;
+        }
+
+        ExcludedList.MaxHeight = height * VisibleRows;
     }
 
     /// The row's identity travels on the button's inherited DataContext, which

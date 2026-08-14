@@ -34,7 +34,9 @@
                  physical pixels below their centre. A centred element is
                  displaced by half its margin, so 4 lifts it by 2 effective
                  units. TextLineBounds="Tight" is the tidier-looking fix and
-                 was tried first; it moved the text by nothing at all. -->
+                 was tried first; it moved the text by nothing at all, and so
+                 did trimming this to 3: at 150% the difference is inside a
+                 pixel, and what is left is a pixel of residual, not error. -->
             <TextBlock Text="ClipSync Settings" VerticalAlignment="Center"
                        Margin="0,0,0,4"
                        Style="{StaticResource CaptionTextBlockStyle}"
@@ -42,78 +44,68 @@
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
         </Grid>
 
-        <!-- Settings pages scroll: the excluded list has no upper bound, and
-             the alternative is a nested scroller inside a fixed-height box,
-             which is the pattern Windows 11 settings deliberately avoids. -->
-        <ScrollViewer Grid.Row="1" Padding="20,12,20,16"
-                      VerticalScrollBarVisibility="Auto">
-            <StackPanel Spacing="4">
-                <TextBlock Text="Privacy"
-                           Style="{StaticResource BodyStrongTextBlockStyle}"
-                           Margin="0,0,0,4"
-                           AutomationProperties.HeadingLevel="Level1"/>
+        <!-- Three fixed bands and one scrolling one. Only the list of apps
+             scrolls; the group header and the add row stay put. A page-level
+             ScrollViewer here instead meant that a third excluded app pushed
+             the add row off the bottom of the window, so the way to add a
+             fourth was to scroll looking for the button. -->
+        <Grid Grid.Row="1" Padding="20,12,20,16" VerticalAlignment="Top">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-                <controls:SettingsExpander x:Name="ExcludedExpander"
-                        Header="Excluded apps"
-                        Description="Items copied while these apps are in the foreground are not sent to your other devices."
-                        IsExpanded="True">
-                    <controls:SettingsExpander.HeaderIcon>
-                        <FontIcon Glyph="&#xE72E;"/>
-                    </controls:SettingsExpander.HeaderIcon>
+            <TextBlock Grid.Row="0" Text="Privacy"
+                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                       Margin="0,0,0,8"
+                       AutomationProperties.HeadingLevel="Level1"/>
 
-                    <controls:SettingsExpander.ItemsHeader>
-                        <!-- Shown only when there is nothing below it. An
-                             expander that opens onto nothing reads as a bug. -->
-                        <TextBlock x:Name="EmptyText" Visibility="Collapsed"
-                                   Margin="56,14,16,14" TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   Text="No apps excluded. Everything you copy is synced."/>
-                    </controls:SettingsExpander.ItemsHeader>
+            <!-- The header, the list and the add row are one visual group:
+                 shared edges, square corners inside, rounded only on the
+                 outside. SettingsExpander did that grouping for us, but its
+                 items live inside the expander's own layout and cannot be
+                 given a scrollbar of their own, which is the whole point
+                 here. -->
+            <controls:SettingsCard Grid.Row="1" x:Name="GroupHeader"
+                    Header="Excluded apps"
+                    Description="Items copied while these apps are in the foreground are not sent to your other devices."
+                    CornerRadius="4,4,0,0">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE72E;"/>
+                </controls:SettingsCard.HeaderIcon>
+            </controls:SettingsCard>
 
-                    <controls:SettingsExpander.ItemsFooter>
-                        <!-- The action lives after the list, the way "Add a
-                             device" does in Windows Settings, rather than in
-                             the expander's header slot: that slot stacks its
-                             content under the description at this window's
-                             width, which reads as a stray button. -->
-                        <!-- No DefaultSettingsExpanderItemStyle here: that key
-                             lives inside the toolkit's own dictionary and does
-                             not resolve from an app page, which fails the
-                             parse at runtime rather than at build. -->
-                        <controls:SettingsCard Header="Add an app to this list">
-                            <!-- Two ways in, one control: picking from the
-                                 installed list is the obvious path, but it
-                                 keys an app on its Start Menu shortcut target,
-                                 which for launcher-based apps is not the
-                                 executable that owns the foreground window.
-                                 Capture is the escape hatch for those. -->
-                            <DropDownButton x:Name="AddButton" Content="Add app"
-                                            AutomationProperties.Name="Add app to the excluded list">
-                                <DropDownButton.Flyout>
-                                    <MenuFlyout Placement="Bottom">
-                                        <MenuFlyoutItem Text="Choose an installed app…" Click="OnAddApp">
-                                            <MenuFlyoutItem.Icon>
-                                                <FontIcon Glyph="&#xE71D;"/>
-                                            </MenuFlyoutItem.Icon>
-                                        </MenuFlyoutItem>
-                                        <MenuFlyoutItem x:Name="CaptureItem"
-                                                        Text="Exclude the app I switch to…"
-                                                        Click="OnCaptureCurrentApp">
-                                            <MenuFlyoutItem.Icon>
-                                                <FontIcon Glyph="&#xE890;"/>
-                                            </MenuFlyoutItem.Icon>
-                                        </MenuFlyoutItem>
-                                    </MenuFlyout>
-                                </DropDownButton.Flyout>
-                            </DropDownButton>
-                        </controls:SettingsCard>
-                    </controls:SettingsExpander.ItemsFooter>
-
-                    <controls:SettingsExpander.ItemTemplate>
+            <Grid Grid.Row="2">
+                <!-- MaxHeight is set in code to two and a half rows, measured
+                     from a realised row rather than assumed, so the half row
+                     showing at the bottom is what tells you there is more
+                     below. A whole number of rows looks like the whole list. -->
+                <ListView x:Name="ExcludedList" SelectionMode="None"
+                          Padding="0" Background="Transparent"
+                          BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                          BorderThickness="1,0,1,0"
+                          AutomationProperties.Name="Excluded apps"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <!-- The row is a SettingsCard and brings its own
+                                 padding; the container must add none, or the
+                                 rows stop lining up with the header above. -->
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Margin" Value="0"/>
+                            <Setter Property="MinHeight" Value="0"/>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
                         <DataTemplate x:DataType="ui:ExcludedAppRow">
                             <controls:SettingsCard Header="{x:Bind Name}"
                                                    HeaderIcon="{x:Bind HeaderIcon}"
-                                                   Description="{x:Bind Detail}">
+                                                   Description="{x:Bind Detail}"
+                                                   CornerRadius="0"
+                                                   BorderThickness="0,0,0,1">
                                 <Button Click="OnRemove"
                                         AutomationProperties.Name="{x:Bind RemoveLabel}"
                                         ToolTipService.ToolTip="{x:Bind RemoveLabel}">
@@ -121,10 +113,48 @@
                                 </Button>
                             </controls:SettingsCard>
                         </DataTemplate>
-                    </controls:SettingsExpander.ItemTemplate>
-                </controls:SettingsExpander>
-            </StackPanel>
-        </ScrollViewer>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <!-- Sits in the list's place when there is no list. An empty
+                     bordered strip with nothing in it reads as a bug. -->
+                <TextBlock x:Name="EmptyText" Visibility="Collapsed"
+                           Margin="24,0" TextWrapping="Wrap" TextAlignment="Center"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Text="No apps excluded. Everything you copy is synced."/>
+            </Grid>
+
+            <!-- The action lives after the list, the way "Add a device" does
+                 in Windows Settings. -->
+            <controls:SettingsCard Grid.Row="3" Header="Add an app to this list"
+                    CornerRadius="0,0,4,4" BorderThickness="1,0,1,1">
+                <!-- Two ways in, one control: picking from the installed list
+                     is the obvious path, but it keys an app on its Start Menu
+                     shortcut target, which for launcher-based apps is not the
+                     executable that owns the foreground window. Capture is
+                     the escape hatch for those. -->
+                <DropDownButton x:Name="AddButton" Content="Add app"
+                                AutomationProperties.Name="Add app to the excluded list">
+                    <DropDownButton.Flyout>
+                        <MenuFlyout Placement="Bottom">
+                            <MenuFlyoutItem Text="Choose an installed app…" Click="OnAddApp">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE71D;"/>
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="CaptureItem"
+                                            Text="Exclude the app I switch to…"
+                                            Click="OnCaptureCurrentApp">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE890;"/>
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
+            </controls:SettingsCard>
+        </Grid>
 
         <InfoBar Grid.Row="2" x:Name="CaptureStatus"
                  Margin="20,0,20,16" IsOpen="False" IsClosable="True"/>
