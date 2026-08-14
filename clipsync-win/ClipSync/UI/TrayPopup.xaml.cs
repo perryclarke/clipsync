@@ -135,7 +135,7 @@ public sealed partial class TrayPopup : Window
     {
         var pause = App.Current.Pause;
         pause.GlobalPaused = !pause.GlobalPaused;
-        App.Current.Tray.RefreshTooltip();
+        App.Current.Tray.RefreshState();
         // Rebuilds the rows too: a global pause does not change any peer's
         // mute, but it does change what the popup as a whole is saying.
         Refresh(App.Current.Peers.GetAll());
