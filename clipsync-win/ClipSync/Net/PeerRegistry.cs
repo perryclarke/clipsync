@@ -102,9 +102,29 @@ public sealed class PeerRegistry
         return list;
     }
 
+    /// Consulted for each peer before sending. Null means send to everyone, which
+    /// is what this class did before pausing existed and what it still does
+    /// if nobody wires it up. Keeping the decision outside means the registry
+    /// does not need to know what a pause is, and the global and per-peer
+    /// cases both arrive through one predicate.
+    public Func<string, bool>? ShouldSendTo;
+
     public void Broadcast(ClipboardItem item)
     {
-        foreach (var pc in _connections.Values) _ = pc.SendItemAsync(item);
+        foreach (var (hex, pc) in _connections)
+        {
+            // Both branches log. A skip needs saying, or a user watches
+            // nothing arrive with no way to tell a pause from a broken link;
+            // and a send needs saying too, or the absence of a skip line is
+            // indistinguishable from the item never reaching this method.
+            if (ShouldSendTo is { } gate && !gate(hex))
+            {
+                Security.Identity.Log($"Broadcast: not sending to {hex[..8]} (paused)");
+                continue;
+            }
+            Security.Identity.Log($"Broadcast: sending to {hex[..8]}");
+            _ = pc.SendItemAsync(item);
+        }
     }
 
     private void Emit()

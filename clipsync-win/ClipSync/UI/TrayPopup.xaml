@@ -8,7 +8,9 @@
             BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}"
             BorderThickness="1" CornerRadius="8" Padding="16">
         <StackPanel Spacing="8" MinWidth="240">
-            <TextBlock Text="ClipSync" FontWeight="SemiBold" FontSize="16"/>
+            <!-- The title carries the global state: a paused device should
+                 say so without the user having to read the button. -->
+            <TextBlock x:Name="TitleText" Text="ClipSync" FontWeight="SemiBold" FontSize="16"/>
             <TextBlock x:Name="DidText" FontSize="11" FontFamily="Consolas"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             <MenuFlyoutSeparator/>
@@ -27,6 +29,16 @@
                 <StackPanel Orientation="Horizontal" Spacing="10">
                     <FontIcon Glyph="&#xE713;" FontSize="14"/>
                     <TextBlock Text="Settings…"/>
+                </StackPanel>
+            </Button>
+            <!-- Between Settings and Quit. Pauses sending only: items from
+                 peers still arrive while this is on. -->
+            <Button x:Name="PauseButton" Click="OnTogglePause"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Left">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <FontIcon x:Name="PauseGlyph" Glyph="&#xE769;" FontSize="14"/>
+                    <TextBlock x:Name="PauseLabel" Text="Pause syncing"/>
                 </StackPanel>
             </Button>
             <Button Click="OnQuit" HorizontalAlignment="Stretch"

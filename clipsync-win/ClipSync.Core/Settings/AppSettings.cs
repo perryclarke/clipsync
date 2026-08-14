@@ -17,12 +17,14 @@ public sealed class AppSettings
 
     private readonly string _path;
     private readonly List<AppIdentity> _excluded;
+    private readonly List<string> _pausedPeers;
     private readonly object _lock = new();
 
-    private AppSettings(string path, List<AppIdentity> excluded)
+    private AppSettings(string path, List<AppIdentity> excluded, List<string> pausedPeers)
     {
         _path = path;
         _excluded = excluded;
+        _pausedPeers = pausedPeers;
     }
 
     public static string DefaultPath => Path.Combine(
@@ -34,6 +36,7 @@ public sealed class AppSettings
     public static AppSettings Load(string path)
     {
         var list = new List<AppIdentity>();
+        var paused = new List<string>();
         try
         {
             if (File.Exists(path))
@@ -43,6 +46,10 @@ public sealed class AppSettings
                 {
                     if (TryParse(e, out var id)) list.Add(id);
                 }
+                foreach (var did in model?.PausedPeers ?? new List<string>())
+                {
+                    if (Normalise(did) is { } key && !paused.Contains(key)) paused.Add(key);
+                }
             }
         }
         catch (Exception ex)
@@ -50,8 +57,9 @@ public sealed class AppSettings
             // Corrupt or unreadable: start empty rather than crashing the app.
             Security.Log.Write($"AppSettings: could not read {path}: {ex.GetType().Name}; using defaults");
             list.Clear();
+            paused.Clear();
         }
-        return new AppSettings(path, list);
+        return new AppSettings(path, list, paused);
     }
 
     public IReadOnlyList<AppIdentity> Excluded
@@ -83,6 +91,43 @@ public sealed class AppSettings
         }
     }
 
+    /// Peers this device does not send to, by lowercase DID hex.
+    ///
+    /// Only the per-peer pause lives here. A global pause is deliberately not
+    /// persisted: it means "not right now", and a restart that silently left
+    /// syncing off would be a bad surprise.
+    public IReadOnlyList<string> PausedPeers
+    {
+        get { lock (_lock) return _pausedPeers.ToList(); }
+    }
+
+    public bool IsPeerPaused(string didHex)
+    {
+        if (Normalise(didHex) is not { } key) return false;
+        lock (_lock) return _pausedPeers.Contains(key);
+    }
+
+    public void SetPeerPaused(string didHex, bool paused)
+    {
+        if (Normalise(didHex) is not { } key) return;
+        lock (_lock)
+        {
+            var changed = paused ? Add(key) : _pausedPeers.Remove(key);
+            if (changed) Persist();
+        }
+
+        bool Add(string k)
+        {
+            if (_pausedPeers.Contains(k)) return false;
+            _pausedPeers.Add(k);
+            return true;
+        }
+    }
+
+    /// DIDs are compared lowercase; blank ones are not a peer.
+    private static string? Normalise(string? didHex) =>
+        string.IsNullOrWhiteSpace(didHex) ? null : didHex.Trim().ToLowerInvariant();
+
     /// Caller holds _lock.
     private void Persist()
     {
@@ -98,6 +143,7 @@ public sealed class AppSettings
                     Name = e.DisplayName,
                     Path = e.Path,
                 }).ToList(),
+                PausedPeers = _pausedPeers.ToList(),
             };
 
             var dir = System.IO.Path.GetDirectoryName(_path);
@@ -144,6 +190,7 @@ public sealed class AppSettings
     {
         public int Version { get; set; } = CurrentVersion;
         public List<Entry> ExcludedApps { get; set; } = new();
+        public List<string> PausedPeers { get; set; } = new();
 
         public sealed class Entry
         {

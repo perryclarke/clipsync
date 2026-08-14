@@ -4,6 +4,7 @@ using ClipSync.Clipboard;
 using ClipSync.Net;
 using ClipSync.Security;
 using ClipSync.Settings;
+using ClipSync.Sync;
 using ClipSync.UI;
 
 namespace ClipSync;
@@ -22,6 +23,7 @@ public partial class App : Application
     public TrayIcon Tray { get; private set; } = null!;
     public AppSettings Settings { get; private set; } = null!;
     public ForegroundTracker Foreground { get; private set; } = null!;
+    public SyncPause Pause { get; private set; } = null!;
 
     public App() { InitializeComponent(); }
 
@@ -40,6 +42,11 @@ public partial class App : Application
             Foreground = new ForegroundTracker();
             Watcher = new ClipboardWatcher(Writer, Foreground, Settings);
             Discovery = new Discovery(Identity, TrustStore, Peers);
+
+            Pause = new SyncPause(Settings);
+            // Sending is gated per peer; receiving deliberately is not, so a
+            // paused device still takes what its peers send it.
+            Peers.ShouldSendTo = did => Pause.ShouldSendTo(did);
 
             Watcher.OnLocalCopy = item => Peers.Broadcast(item);
             Peers.OnRemoteItem = item => Writer.Apply(item);

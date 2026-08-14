@@ -31,6 +31,14 @@ public sealed class TrayIcon
         };
     }
 
+    /// The tray tooltip is the only sign of a global pause without opening
+    /// the popup, so it has to follow the state.
+    public void RefreshTooltip()
+    {
+        if (_icon is null) return;
+        _icon.ToolTipText = App.Current.Pause.GlobalPaused ? "ClipSync — paused" : "ClipSync";
+    }
+
     private static Icon LoadIcon()
     {
         const string resourceName = "ClipSync.Assets.AppIcon.ico";

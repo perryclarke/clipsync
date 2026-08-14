@@ -113,6 +113,30 @@ public sealed partial class TrayPopup : Window
             Identity.Log($"  peer: {peer.Name} state={peer.State}");
             PeerList.Children.Add(BuildPeerRow(peer));
         }
+
+        RefreshPauseButton();
+    }
+
+    /// The global control says what pressing it will do; the title says what
+    /// is currently true. Both, because a button alone reading "Resume
+    /// syncing" is a weak way to learn that you are not syncing.
+    private void RefreshPauseButton()
+    {
+        var paused = App.Current.Pause.GlobalPaused;
+        PauseLabel.Text = paused ? "Resume syncing" : "Pause syncing";
+        PauseGlyph.Glyph = paused ? PlayGlyph : PauseGlyphText;
+        AutomationProperties.SetName(PauseButton, PauseLabel.Text);
+        TitleText.Text = paused ? "ClipSync — Paused" : "ClipSync";
+    }
+
+    private void OnTogglePause(object sender, RoutedEventArgs e)
+    {
+        var pause = App.Current.Pause;
+        pause.GlobalPaused = !pause.GlobalPaused;
+        App.Current.Tray.RefreshTooltip();
+        // Rebuilds the rows too: a global pause does not change any peer's
+        // mute, but it does change what the popup as a whole is saying.
+        Refresh(App.Current.Peers.GetAll());
     }
 
     /// One peer line: a status dot, the peer's name, and then either the
@@ -122,8 +146,14 @@ public sealed partial class TrayPopup : Window
     /// thing that ever varied is the tuple below.
     private UIElement BuildPeerRow(Peer peer)
     {
+        // A muted peer reads as paused whatever its connection is doing: the
+        // reason nothing reaches it is the mute, not the network, and saying
+        // "Online" there would be actively misleading.
+        var muted = peer.State != PeerState.Pending && App.Current.Pause.IsMuted(peer.DidHex);
+
         var (brushKey, fallback, status) = peer.State switch
         {
+            _ when muted      => ("SystemFillColorCautionBrush", Colors.Orange, "Paused"),
             PeerState.Online  => ("SystemFillColorSuccessBrush", Colors.LimeGreen, "Online"),
             PeerState.Pending => ("SystemFillColorCautionBrush", Colors.Orange, "Waiting to be trusted"),
             _                 => ("TextFillColorDisabledBrush", Colors.Gray, "Offline"),
@@ -179,10 +209,42 @@ public sealed partial class TrayPopup : Window
                 Foreground = Themed("TextFillColorSecondaryBrush", Colors.Gray),
                 VerticalAlignment = VerticalAlignment.Center,
             });
+            row.Children.Add(BuildMuteButton(peer, muted));
         }
 
         return row;
     }
+
+    /// Per-peer send toggle. Offered on known peers whether they are online
+    /// or not: the mute persists, so muting a machine that happens to be off
+    /// right now is a reasonable thing to want. A pending peer has no such
+    /// button -- it is not syncing yet, and its row already has Trust.
+    private UIElement BuildMuteButton(Peer peer, bool muted)
+    {
+        var did = peer.DidHex;
+        var name = peer.Name;
+
+        // Verb, not state: the button says what pressing it will do.
+        var label = muted ? $"Resume syncing to {name}" : $"Pause syncing to {name}";
+        var btn = new Button
+        {
+            Content = new FontIcon { Glyph = muted ? PlayGlyph : PauseGlyphText, FontSize = 12 },
+            Padding = new Thickness(8, 2, 8, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        AutomationProperties.SetName(btn, label);
+        ToolTipService.SetToolTip(btn, label);
+
+        btn.Click += (_, _) =>
+        {
+            App.Current.Pause.SetMuted(did, !muted);
+            Refresh(App.Current.Peers.GetAll());
+        };
+        return btn;
+    }
+
+    private const string PauseGlyphText = "\uE769";  // Pause
+    private const string PlayGlyph      = "\uE768";  // Play
 
     private int _peerCount;
 
@@ -211,10 +273,11 @@ public sealed partial class TrayPopup : Window
         var dpi = GetDpiForWindow(WindowNative.GetWindowHandle(this));
         var scale = dpi / 96.0;
 
-        // Compute height to fit content: header + DID + separator + peers + separator + button + padding.
+        // Height is computed rather than measured, so every control added to
+        // the popup has to be added here too or the last one is clipped.
         int rows = Math.Max(_peerCount, 1); // at least 1 for "Looking for peers..." text
-        // header + DID + separator + peers + separator + 2 buttons + padding
-        int contentHeight = (int)((24 + 18 + 1 + (rows * 28) + 1 + 36 + 36 + 8 + 60) * scale);
+        // header + DID + separator + peers + separator + 3 buttons + padding
+        int contentHeight = (int)((24 + 18 + 1 + (rows * 28) + 1 + 36 + 36 + 36 + 8 + 60) * scale);
         int w = (int)(300 * scale), h = contentHeight;
 
         // Anchored to the notification area rather than to the cursor: this
