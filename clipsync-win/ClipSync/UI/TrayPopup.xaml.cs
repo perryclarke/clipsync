@@ -31,6 +31,14 @@ public sealed partial class TrayPopup : Window
         // Remove title bar, make it a tool window (no taskbar entry).
         _appWindow.TitleBar.ExtendsContentIntoTitleBar = true;
         var presenter = OverlappedPresenter.CreateForContextMenu();
+
+        // Topmost, or this opens underneath the thing it was opened from.
+        // The notification area's own overflow flyout -- the grid of hidden
+        // icons that holds our tray icon -- is a topmost window, and being
+        // the foreground window does not put us above one of those. Windows'
+        // own tray flyouts are topmost for the same reason.
+        presenter.IsAlwaysOnTop = true;
+
         _appWindow.SetPresenter(presenter);
 
         Activated += (_, e) =>
