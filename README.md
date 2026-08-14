@@ -15,6 +15,17 @@ Clipboard History / Win+V).
   Visual Studio 2022 17.12+ with the Windows App SDK 1.6 workload, or
   `dotnet build clipsync-win/ClipSync/ClipSync.csproj -c Release`.
 
+  Sending can be paused from the tray menu. **Pause syncing**, between
+  **Settings…** and **Quit**, stops this device sending anything to
+  anybody; the title reads "ClipSync — Paused" and the tray tooltip
+  follows, so it is visible without opening the menu. Each known peer
+  also has its own ⏸ / ▶ button, which pauses sending to just that
+  machine. Both are send-only: items from peers still arrive and still
+  land in your clipboard while paused, and nothing is queued or replayed
+  on resume. A per-peer pause is remembered across restarts; a global one
+  deliberately is not, so a reboot can never leave you silently not
+  syncing.
+
   Apps can be excluded from sync: open the tray menu → **Settings…**, which
   opens beside the tray popup rather than over it, then **Add app** →
   **Choose an installed app…** and pick from the installed-app list, which

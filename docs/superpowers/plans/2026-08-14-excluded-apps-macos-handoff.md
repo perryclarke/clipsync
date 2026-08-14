@@ -276,6 +276,33 @@ negative result.
 
 ---
 
+## 9a. Also missing on macOS: pause / resume
+
+Windows has since gained a send-side pause, which macOS does not have.
+It is small and worth doing in the same pass as the exclusions, because
+it lands in the same place: the send path and the menu.
+
+- **Global** — a *Pause syncing* item in `MenuBarView` between Settings
+  and Quit, plus the state in the popover title. Not persisted.
+- **Per-peer** — a ⏸ / ▶ button on each `PeerRow`, muting sending to that
+  peer. Persisted in `settings.json` as `pausedPeers`, a list of
+  lowercase DID hex. That key already exists in the shared file, so the
+  mac side should read and write it rather than inventing another.
+- **Send only.** Items from peers still arrive and are still applied
+  while paused. Nothing is queued; nothing replays on resume.
+- The gate belongs in `PeerRegistry.broadcast`, as one predicate covering
+  both cases, so the registry never learns what a pause is. Windows uses
+  `Func<string,bool>? ShouldSendTo`; the Swift equivalent is a closure.
+
+The rule the Windows tests pin down: the two gates are independent.
+Un-muting one peer must not defeat a global pause, and resuming globally
+must not un-mute a peer. See `SyncPauseTests`.
+
+One thing learned verifying it, which applies to any of this: log both
+branches of the send decision. Logging only the skip meant "no skip line"
+was indistinguishable from "the item never reached the send path", and a
+test that looked like it passed was actually inconclusive.
+
 ## 10. Open questions
 
 - **Elevated / privileged apps (Windows, still open).** Can an app running
