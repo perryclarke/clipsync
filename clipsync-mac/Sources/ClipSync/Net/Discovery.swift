@@ -45,7 +45,7 @@ final class Discovery {
     }
 
     private func log(_ s: String) {
-        NSLog("ClipSync: %@", s)
+        NSLog("%@", s)
         onLog?(s)
     }
 
@@ -59,6 +59,10 @@ final class Discovery {
     private func startListener() {
         let tlsOptions = TLS.makeServerOptions(identity: identity, trustStore: trustStore)
         let params = NWParameters(tls: tlsOptions)
+        // Keep ClipSync on the real LAN: VPN tunnels (utun*) report as
+        // `.other`. Advertising/listening over a tunnel makes us reachable
+        // only through the VPN, which peers on the physical subnet can't use.
+        params.prohibitedInterfaceTypes = [.other]
         var txtDict: [String: String] = [
             "v": "1",
             "did": identity.didHex,
@@ -102,6 +106,8 @@ final class Discovery {
 
     private func startBrowser() {
         let params = NWParameters()
+        // Don't discover peers over VPN tunnels — see startListener().
+        params.prohibitedInterfaceTypes = [.other]
         let b = NWBrowser(for: .bonjourWithTXTRecord(type: "_clipsync._tcp", domain: nil), using: params)
         b.stateUpdateHandler = { [weak self] state in
             self?.log("browser state: \(state)")
@@ -148,6 +154,10 @@ final class Discovery {
         log("connecting to \(endpoint)")
         let tlsOptions = TLS.makeClientOptions(identity: identity, trustStore: trustStore)
         let params = NWParameters(tls: tlsOptions)
+        // Dial the peer over the LAN, never the VPN tunnel — otherwise the
+        // outbound connection binds to utun* and times out even though the
+        // peer's LAN address is directly reachable.
+        params.prohibitedInterfaceTypes = [.other]
         let conn = NWConnection(to: endpoint, using: params)
         let pc = PeerConnection(connection: conn, identity: identity,
                                 trustStore: trustStore, role: .client)
