@@ -368,7 +368,43 @@ the existing `Clipboard/`, `Security/`, `UI/` split.
 
 ---
 
-## 12. Build note
+## 12. macOS verification results (2026-08-14)
+
+Both features are now built and verified on the Mac. Findings that answer
+this document's open questions, plus one bug the verification surfaced:
+
+- **§2.2 holds on macOS, verified rather than assumed.** For every app
+  tested — Safari, TextEdit, 1Password (Electron), Claude (Electron),
+  Proton VPN (the app whose launcher broke the Windows build) — the
+  bundle identifier reported by `didActivateApplicationNotification` /
+  `frontmostApplication` equals the `CFBundleIdentifier` read from the
+  scanned `.app`, after one shared normalisation. Electron helpers are
+  not reported; the parent bundle is. The §5 capture escape hatch is
+  therefore **not built** — nothing needs it.
+- **End-to-end, log-verified both ways** against a live Windows peer
+  (DEEPTHOUGHT): copy in an excluded app → `suppressed item from
+  TextEdit`, no broadcast line, item still on the local clipboard;
+  control copy → `sending item` + `Broadcast: sending to cb909646`;
+  muted peer → `Broadcast: not sending to cb909646 (paused)`; resume via
+  the popover button → next copy sent, no restart.
+- **Bug found by the "log both branches" rule:** `Timer.scheduledTimer`
+  registers in the run loop's default mode only, so watcher ticks
+  stalled while any menu or popover was tracking, and rapid copies
+  coalesced. The timer is now added in `.common` mode. The pre-feature
+  watcher had the same latent bug.
+- **macOS 26 pasteboard privacy:** programmatic reads are gated per app
+  (`NSPasteboard.accessBehavior`). The watcher now logs the stance at
+  startup and logs a change that yields no readable formats — without
+  those lines a denied read is indistinguishable from no copy at all.
+- **Keychain prompts:** ad-hoc signing (`codesign --sign -`) gives every
+  build a new code identity, so the TLS-identity keychain items re-prompt
+  (~5 dialogs) on each rebuild. `build-dmg.sh` now prefers a real signing
+  identity (Apple Development / Developer ID) when one is present; with a
+  stable identity the prompts are one-time.
+- The polling-window rule (§3) ran as specified and produced no
+  surprising suppressions during testing. No change proposed.
+
+## 13. Build note
 
 Only the Windows side can be built or tested on the current development
 machine. **Swift changes must be written conservatively and verified by
