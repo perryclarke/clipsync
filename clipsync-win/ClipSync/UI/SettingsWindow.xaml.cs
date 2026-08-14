@@ -75,7 +75,7 @@ public sealed partial class SettingsWindow : Window
     /// small-screen layout. The height fits the group header, two app rows
     /// and the add row before the page starts scrolling.
     private const int WidthDip = 560;
-    private const int HeightDip = 400;
+    private const int HeightDip = 408;
 
     /// Breathing room between this window and the tray popup it sits beside.
     private const int GapDip = 8;

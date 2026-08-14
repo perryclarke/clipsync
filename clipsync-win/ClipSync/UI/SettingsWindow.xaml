@@ -62,16 +62,17 @@
                        Margin="0,0,0,8"
                        AutomationProperties.HeadingLevel="Level1"/>
 
-            <!-- The header, the list and the add row are one visual group:
-                 shared edges, square corners inside, rounded only on the
-                 outside. SettingsExpander did that grouping for us, but its
-                 items live inside the expander's own layout and cannot be
-                 given a scrollbar of their own, which is the whole point
-                 here. -->
+            <!-- The header and the list are one closed group; the add row is
+                 a separate card below it. Every divider in the group is drawn
+                 by the element *below* it: the header has no bottom edge,
+                 each row has a top edge, and the list itself closes the
+                 bottom. Drawing them from both sides instead gives a two
+                 pixel line everywhere two borders meet. -->
             <controls:SettingsCard Grid.Row="1" x:Name="GroupHeader"
                     Header="Excluded apps"
                     Description="Items copied while these apps are in the foreground are not sent to your other devices."
-                    CornerRadius="4,4,0,0">
+                    CornerRadius="4,4,0,0"
+                    BorderThickness="1,1,1,0">
                 <controls:SettingsCard.HeaderIcon>
                     <FontIcon Glyph="&#xE72E;"/>
                 </controls:SettingsCard.HeaderIcon>
@@ -82,10 +83,15 @@
                      from a realised row rather than assumed, so the half row
                      showing at the bottom is what tells you there is more
                      below. A whole number of rows looks like the whole list. -->
+                <!-- The bottom edge here is what a half-shown row is clipped
+                     against. Without it the cut row simply stopped, and ran
+                     straight into the add row below with nothing between
+                     them. -->
                 <ListView x:Name="ExcludedList" SelectionMode="None"
                           Padding="0" Background="Transparent"
                           BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                          BorderThickness="1,0,1,0"
+                          BorderThickness="1,0,1,1"
+                          CornerRadius="0,0,4,4"
                           AutomationProperties.Name="Excluded apps"
                           ScrollViewer.VerticalScrollBarVisibility="Auto">
                     <ListView.ItemContainerStyle>
@@ -105,7 +111,7 @@
                                                    HeaderIcon="{x:Bind HeaderIcon}"
                                                    Description="{x:Bind Detail}"
                                                    CornerRadius="0"
-                                                   BorderThickness="0,0,0,1">
+                                                   BorderThickness="0,1,0,0">
                                 <Button Click="OnRemove"
                                         AutomationProperties.Name="{x:Bind RemoveLabel}"
                                         ToolTipService.ToolTip="{x:Bind RemoveLabel}">
@@ -126,9 +132,13 @@
             </Grid>
 
             <!-- The action lives after the list, the way "Add a device" does
-                 in Windows Settings. -->
+                 in Windows Settings. A card of its own with a gap above it,
+                 rather than the last row of the group: when the list is
+                 scrolled the row above this is cut in half, and a shared
+                 edge there made the add row look like the bottom of that
+                 half-row instead of a separate thing. -->
             <controls:SettingsCard Grid.Row="3" Header="Add an app to this list"
-                    CornerRadius="0,0,4,4" BorderThickness="1,0,1,1">
+                    Margin="0,8,0,0" CornerRadius="4" BorderThickness="1">
                 <!-- Two ways in, one control: picking from the installed list
                      is the obvious path, but it keys an app on its Start Menu
                      shortcut target, which for launcher-based apps is not the
