@@ -39,12 +39,15 @@ final class AppCoordinator: ObservableObject {
     @Published var recentItems: [RecentItem] = []
 
     init() {
-        self.identity = Identity.loadOrCreate()
         // `--reset` forgets all trusted peers so the user must re-approve
-        // connections. Must run before the store is loaded into memory below.
+        // connections. Run this first — before Identity.loadOrCreate(), which
+        // can block on a keychain prompt — so the reset fires immediately at
+        // launch and before the store is loaded into memory below. This
+        // mirrors Windows, where reset runs before Application.Start.
         if CommandLine.arguments.contains("--reset") {
             TrustStore.reset()
         }
+        self.identity = Identity.loadOrCreate()
         self.trustStore = TrustStore.load()
         self.peers = PeerRegistry()
         self.writer = PasteboardWriter()

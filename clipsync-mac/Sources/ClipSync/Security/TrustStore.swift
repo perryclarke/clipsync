@@ -74,7 +74,7 @@ final class TrustStore {
     /// loaded into memory. Used by the `--reset` command-line switch.
     static func reset() {
         load().clear()
-        NSLog("ClipSync: --reset cleared trusted peers")
+        NSLog("--reset cleared trusted peers")
     }
 
     func all() -> [Entry] {

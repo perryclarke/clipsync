@@ -39,6 +39,12 @@ final class Identity {
     }
 
     private static let label = "ClipSync TLS Identity"
+    /// Human-readable name shown in the macOS "ClipSync wants to sign using
+    /// key …" keychain prompt. This is only the key's display label; the key
+    /// is looked up by `keyTag` (application tag), never by this string, so it
+    /// is safe to set independently of `label` (which keys cert/identity
+    /// lookups and must not change for existing installs).
+    private static let keyDisplayLabel = "ClipSync device identity"
     private static let keyTag = "com.clipsync.tls.key".data(using: .utf8)!
     private static let edService = "com.clipsync.identity"
     private static let edAccount = "clipsync-ed25519"
@@ -46,13 +52,123 @@ final class Identity {
     private static let certAccount = "clipsync-tls-cert-der"
 
     static func loadOrCreate() -> Identity {
-        if let existing = tryLoad() {
-            Identity.shared = existing
-            return existing
+        let identity = tryLoad() ?? create()
+        ensureLabels()      // friendly keychain-prompt names; migrates old items
+        pruneStaleCerts()   // remove duplicate certs from earlier (re)creation
+        Identity.shared = identity
+        return identity
+    }
+
+    /// Remove stale ClipSync certificates left in the keychain by earlier
+    /// identity (re)creation. Each `create()` run added a fresh cert with a
+    /// new random serial, so duplicates accumulate over time. Keep only the
+    /// canonical cert — the one whose DER matches the stashed cert the current
+    /// identity resolves against — and delete the rest. Certificates aren't
+    /// secret, so deleting them doesn't trigger an auth prompt. No-op when the
+    /// stashed DER is unavailable (then we can't tell which one to keep).
+    private static func pruneStaleCerts() {
+        guard let canonical = loadCertDER() else { return }
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassCertificate,
+            kSecAttrLabel as String: "clipsync",   // CN-derived label of our certs
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnRef as String: true,
+            kSecReturnData as String: true,
+        ]
+        var out: AnyObject?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+              let items = out as? [[String: Any]] else { return }
+        var removed = 0
+        for item in items {
+            guard let der = item[kSecValueData as String] as? Data,
+                  der != canonical,                        // never delete the live cert
+                  let ref = item[kSecValueRef as String] else { continue }
+            let cert = ref as! SecCertificate
+            // Extra safety: only prune certs whose subject CN is "clipsync",
+            // so an unrelated cert that happens to share the label is untouched.
+            var cn: CFString?
+            SecCertificateCopyCommonName(cert, &cn)
+            guard (cn as String?) == "clipsync" else { continue }
+            let del: [String: Any] = [
+                kSecClass as String: kSecClassCertificate,
+                kSecValueRef as String: cert,
+            ]
+            if SecItemDelete(del as CFDictionary) == errSecSuccess { removed += 1 }
         }
-        let fresh = create()
-        Identity.shared = fresh
-        return fresh
+        if removed > 0 { NSLog("pruned \(removed) stale certificate(s)") }
+    }
+
+    /// Give every keychain item backing the device identity a friendly,
+    /// human-readable label so the macOS access/signing prompts name
+    /// "ClipSync device identity" instead of `<key>` or the raw service string
+    /// `com.clipsync.identity`. All of these are metadata-only reads/updates —
+    /// they never touch the secret data, so they don't trigger an auth prompt.
+    private static func ensureLabels() {
+        ensureKeyLabel()
+        ensureGenericPasswordLabel(account: edAccount)
+        ensureGenericPasswordLabel(account: certAccount)
+    }
+
+    /// Set a friendly `kSecAttrLabel` on a generic-password item (the raw
+    /// Ed25519 key or the stashed cert DER). Without a label macOS shows the
+    /// service name (`com.clipsync.identity`) in the access prompt. Reads the
+    /// current label first and only writes when it differs, so launches stay
+    /// silent once migrated.
+    private static func ensureGenericPasswordLabel(account: String) {
+        let read: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: edService,
+            kSecAttrAccount as String: account,
+            kSecReturnAttributes as String: true,
+        ]
+        var out: AnyObject?
+        guard SecItemCopyMatching(read as CFDictionary, &out) == errSecSuccess,
+              let attrs = out as? [String: Any] else { return }
+        if (attrs[kSecAttrLabel as String] as? String) == keyDisplayLabel { return }
+
+        let match: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: edService,
+            kSecAttrAccount as String: account,
+        ]
+        let update: [String: Any] = [kSecAttrLabel as String: keyDisplayLabel]
+        let s = SecItemUpdate(match as CFDictionary, update as CFDictionary)
+        if s == errSecSuccess {
+            NSLog("set label on \(account) to \"\(keyDisplayLabel)\"")
+        } else if s != errSecItemNotFound {
+            NSLog("label update for \(account) failed: \(s)")
+        }
+    }
+
+    /// Ensure the permanent signing key carries a human-readable label, so the
+    /// macOS "ClipSync wants to sign using key …" prompt shows a meaningful
+    /// name instead of the placeholder `<key>`. Reads the current label first
+    /// (a metadata read, no auth prompt) and only writes when it differs, so
+    /// repeated launches stay silent. Also migrates keys from older builds.
+    private static func ensureKeyLabel() {
+        let read: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: keyTag,
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecReturnAttributes as String: true,
+        ]
+        var out: AnyObject?
+        guard SecItemCopyMatching(read as CFDictionary, &out) == errSecSuccess,
+              let attrs = out as? [String: Any] else { return }
+        if (attrs[kSecAttrLabel as String] as? String) == keyDisplayLabel { return }
+
+        let match: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: keyTag,
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+        ]
+        let update: [String: Any] = [kSecAttrLabel as String: keyDisplayLabel]
+        let s = SecItemUpdate(match as CFDictionary, update as CFDictionary)
+        if s == errSecSuccess {
+            NSLog("set signing key label to \"\(keyDisplayLabel)\"")
+        } else {
+            NSLog("ensureKeyLabel update failed: \(s)")
+        }
     }
 
     // MARK: - Load
@@ -90,7 +206,7 @@ final class Identity {
             var id: SecIdentity?
             let s = SecIdentityCreateWithCertificate(nil, cert, &id)
             if s == errSecSuccess, let id { return (id, cert) }
-            NSLog("ClipSync: SecIdentityCreateWithCertificate from stashed DER failed: \(s)")
+            NSLog("SecIdentityCreateWithCertificate from stashed DER failed: \(s)")
         }
 
         // Path 1: direct identity lookup by label.
@@ -107,7 +223,7 @@ final class Identity {
             SecIdentityCopyCertificate(identity, &cert)
             if let c = cert { return (identity, c) }
         }
-        NSLog("ClipSync: identity-by-label lookup failed: \(s1)")
+        NSLog("identity-by-label lookup failed: \(s1)")
 
         // Path 2: find our cert by label, then resolve an identity from it.
         // The permanent key is keyed by applicationTag — as long as both are
@@ -124,9 +240,9 @@ final class Identity {
             var id: SecIdentity?
             let s3 = SecIdentityCreateWithCertificate(nil, cert, &id)
             if s3 == errSecSuccess, let id { return (id, cert) }
-            NSLog("ClipSync: SecIdentityCreateWithCertificate from stored cert failed: \(s3)")
+            NSLog("SecIdentityCreateWithCertificate from stored cert failed: \(s3)")
         } else {
-            NSLog("ClipSync: cert-by-label lookup failed: \(s2)")
+            NSLog("cert-by-label lookup failed: \(s2)")
         }
         return nil
     }
@@ -150,13 +266,14 @@ final class Identity {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: certService,
             kSecAttrAccount as String: certAccount,
+            kSecAttrLabel as String: keyDisplayLabel,
             kSecValueData as String: der,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
         SecItemDelete(add as CFDictionary)
         let s = SecItemAdd(add as CFDictionary, nil)
         if s != errSecSuccess {
-            NSLog("ClipSync: storeCertDER failed: \(s)")
+            NSLog("storeCertDER failed: \(s)")
         }
     }
 
@@ -178,6 +295,7 @@ final class Identity {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: edService,
             kSecAttrAccount as String: edAccount,
+            kSecAttrLabel as String: keyDisplayLabel,
             kSecValueData as String: key.rawRepresentation,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
@@ -212,7 +330,7 @@ final class Identity {
                 kSecPrivateKeyAttrs as String: [
                     kSecAttrIsPermanent as String: true,
                     kSecAttrApplicationTag as String: keyTag,
-                    kSecAttrLabel as String: label,
+                    kSecAttrLabel as String: keyDisplayLabel,
                 ] as [String: Any]
             ]
             var err: Unmanaged<CFError>?
@@ -316,7 +434,7 @@ final class Identity {
         ]
         let certStatus = SecItemAdd(certAdd as CFDictionary, nil)
         if certStatus != errSecSuccess && certStatus != errSecDuplicateItem {
-            NSLog("ClipSync: SecItemAdd(cert) warning: \(certStatus)")
+            NSLog("SecItemAdd(cert) warning: \(certStatus)")
         }
 
         // 8. Resolve a SecIdentity binding this cert to the permanent key.
