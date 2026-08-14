@@ -108,10 +108,12 @@ public sealed partial class TrayPopup : Window
         EmptyText.Visibility = peers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         Identity.Log($"Refresh: {peers.Count} peers");
 
+        var first = true;
         foreach (var peer in peers)
         {
             Identity.Log($"  peer: {peer.Name} state={peer.State}");
-            PeerList.Children.Add(BuildPeerRow(peer));
+            PeerList.Children.Add(BuildPeerRow(peer, first));
+            first = false;
         }
 
         RefreshPauseButton();
@@ -144,7 +146,7 @@ public sealed partial class TrayPopup : Window
     ///
     /// The three states were three near-identical copies of this; the only
     /// thing that ever varied is the tuple below.
-    private UIElement BuildPeerRow(Peer peer)
+    private UIElement BuildPeerRow(Peer peer, bool first)
     {
         // A muted peer reads as paused whatever its connection is doing: the
         // reason nothing reaches it is the mute, not the network, and saying
@@ -159,7 +161,14 @@ public sealed partial class TrayPopup : Window
             _                 => ("TextFillColorDisabledBrush", Colors.Gray, "Offline"),
         };
 
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        // Four columns: dot, name, state, action. The star on the state
+        // column is what pushes the button to the right edge, which is where
+        // a Windows 11 list row puts its control.
+        var row = new Grid { ColumnSpacing = 10, Padding = new Thickness(12, 10, 12, 10) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         // The dot is decorative: the state is always written out beside it,
         // so colour never carries meaning on its own -- which is what both a
@@ -172,13 +181,17 @@ public sealed partial class TrayPopup : Window
             VerticalAlignment = VerticalAlignment.Center,
         };
         AutomationProperties.SetAccessibilityView(dot, AccessibilityView.Raw);
+        Grid.SetColumn(dot, 0);
         row.Children.Add(dot);
 
-        row.Children.Add(new TextBlock
+        var nameText = new TextBlock
         {
-            Text = peer.Name, FontSize = 14,
+            Text = peer.Name,
             VerticalAlignment = VerticalAlignment.Center,
-        });
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        Grid.SetColumn(nameText, 1);
+        row.Children.Add(nameText);
 
         if (peer.State == PeerState.Pending)
         {
@@ -199,27 +212,41 @@ public sealed partial class TrayPopup : Window
                 App.Current.TrustStore.Add(did, name);
                 App.Current.Discovery.ConnectToPeer(did);
             };
+            Grid.SetColumn(btn, 3);
             row.Children.Add(btn);
         }
         else
         {
-            row.Children.Add(new TextBlock
+            var stateText = new TextBlock
             {
                 Text = status, FontSize = 12,
                 Foreground = Themed("TextFillColorSecondaryBrush", Colors.Gray),
                 VerticalAlignment = VerticalAlignment.Center,
-            });
-            row.Children.Add(BuildMuteButton(peer, muted));
+            };
+            Grid.SetColumn(stateText, 2);
+            row.Children.Add(stateText);
+
+            var mute = BuildMuteButton(peer, muted);
+            Grid.SetColumn(mute, 3);
+            row.Children.Add(mute);
         }
 
-        return row;
+        // Dividers are drawn by the row below, never by the one above, so no
+        // two borders meet and nothing doubles to two pixels. Same rule the
+        // settings window's list follows.
+        return new Border
+        {
+            Child = row,
+            BorderBrush = Themed("CardStrokeColorDefaultBrush", Colors.Gray),
+            BorderThickness = new Thickness(0, first ? 0 : 1, 0, 0),
+        };
     }
 
     /// Per-peer send toggle. Offered on known peers whether they are online
     /// or not: the mute persists, so muting a machine that happens to be off
     /// right now is a reasonable thing to want. A pending peer has no such
     /// button -- it is not syncing yet, and its row already has Trust.
-    private UIElement BuildMuteButton(Peer peer, bool muted)
+    private FrameworkElement BuildMuteButton(Peer peer, bool muted)
     {
         var did = peer.DidHex;
         var name = peer.Name;
@@ -273,12 +300,8 @@ public sealed partial class TrayPopup : Window
         var dpi = GetDpiForWindow(WindowNative.GetWindowHandle(this));
         var scale = dpi / 96.0;
 
-        // Height is computed rather than measured, so every control added to
-        // the popup has to be added here too or the last one is clipped.
-        int rows = Math.Max(_peerCount, 1); // at least 1 for "Looking for peers..." text
-        // header + DID + separator + peers + separator + 3 buttons + padding
-        int contentHeight = (int)((24 + 18 + 1 + (rows * 28) + 1 + 36 + 36 + 36 + 8 + 60) * scale);
-        int w = (int)(300 * scale), h = contentHeight;
+        // Ask the content how big it is rather than adding the parts up.
+        var (w, h) = MeasuredSize(rows: Math.Max(_peerCount, 1), scale: scale);
 
         // Anchored to the notification area rather than to the cursor: this
         // opens from a tray icon, which lives in the bottom corner, and that
@@ -306,6 +329,51 @@ public sealed partial class TrayPopup : Window
         // not always, and mixing the two threw the settings window onto
         // another display entirely.
         _bounds = bounds;
+    }
+
+    /// Narrowest and widest the popup is allowed to be, in DIPs. The floor
+    /// keeps it from looking mean with one short peer name; the ceiling keeps
+    /// a machine called something absurd from producing a popup half the
+    /// width of the screen.
+    private const double MinWidthDip = 300;
+    private const double MaxWidthDip = 440;
+
+    /// How big the popup's content wants to be, in physical pixels.
+    ///
+    /// Measured from the live tree, so anything added to the XAML is counted
+    /// without a second edit here. The hand-summed height this replaces had
+    /// to be updated every time a control was added and twice was not, which
+    /// clips the bottom item and reads as a layout bug rather than a stale
+    /// constant. The width was worse: it was never computed at all, just a
+    /// round number that the content had quietly outgrown.
+    ///
+    /// Falls back to that estimate if the content reports nothing, which it
+    /// does before its first layout pass: a roughly-right window beats one of
+    /// height zero.
+    private (int Width, int Height) MeasuredSize(int rows, double scale)
+    {
+        try
+        {
+            if (Content is FrameworkElement root)
+            {
+                root.Measure(new Windows.Foundation.Size(MaxWidthDip, double.PositiveInfinity));
+                var wanted = root.DesiredSize;
+                if (wanted.Height > 0 && wanted.Width > 0)
+                {
+                    var w = Math.Clamp(wanted.Width, MinWidthDip, MaxWidthDip);
+                    return ((int)Math.Ceiling(w * scale),
+                            (int)Math.Ceiling(wanted.Height * scale));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Identity.Log($"TrayPopup: measure failed: {ex.GetType().Name}");
+        }
+
+        // header + peers card + 3 buttons + padding, as it was before.
+        return ((int)(MinWidthDip * scale),
+                (int)((24 + 18 + 1 + (rows * 40) + 1 + 36 + 36 + 36 + 8 + 60) * scale));
     }
 
     /// Where this popup was last drawn, in physical pixels, so the settings
