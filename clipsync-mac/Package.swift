@@ -24,6 +24,12 @@ let package = Package(
             ],
             path: "Sources/ClipSync",
             swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "ClipSyncTests",
+            dependencies: ["ClipSync"],
+            path: "Tests/ClipSyncTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]
 )

@@ -10,34 +10,82 @@ final class PasteboardWatcher {
     private let pasteboard = NSPasteboard.general
     private weak var writer: PasteboardWriter?
     private let identity: Identity
+    private let foreground: ForegroundRing
+    private let settings: AppSettings
     private var lastChangeCount: Int = 0
+    private var lastTick = Date()
     private var timer: Timer?
     private var nextSeq: UInt64 = 1
 
-    init(identity: Identity, writer: PasteboardWriter) {
+    init(identity: Identity, writer: PasteboardWriter,
+         foreground: ForegroundRing, settings: AppSettings) {
         self.identity = identity
         self.writer = writer
+        self.foreground = foreground
+        self.settings = settings
         self.lastChangeCount = pasteboard.changeCount
     }
 
     func start() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+        // macOS 26 gates programmatic pasteboard reads per app. Log the
+        // stance once at startup: if reads are denied, every copy would
+        // otherwise vanish with no line saying why.
+        if #available(macOS 15.4, *) {
+            NSLog("PasteboardWatcher: pasteboard access behavior = %d",
+                  pasteboard.accessBehavior.rawValue)
+        }
+        lastTick = Date()
+        // .common, not the default mode: a default-mode timer stalls while
+        // a menu or popover is tracking, so a copy made from a context menu
+        // (or while our own popover is open) would sit unprocessed — and
+        // rapid copies would coalesce into one once the menu closed.
+        let t = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
             self?.tick()
         }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     func stop() { timer?.invalidate(); timer = nil }
 
     private func tick() {
+        // The copy is only known to have happened somewhere in the window
+        // since the previous tick, so that window — not "now" — is what
+        // the suppression decision is asked about.
+        let now = Date()
+        let windowStart = lastTick
+        lastTick = now
+
         let current = pasteboard.changeCount
         guard current != lastChangeCount else { return }
         lastChangeCount = current
 
-        guard let item = snapshot() else { return }
+        guard let item = snapshot() else {
+            // A change with nothing readable is worth one line: without it,
+            // a denied pasteboard read is indistinguishable from no copy
+            // ever happening.
+            NSLog("PasteboardWatcher: change #%d had no readable formats", current)
+            return
+        }
 
-        // Loop suppression: if the writer just applied a remote item
-        // with the same canonical hash, don't rebroadcast it.
+        // Loop suppression stays first: if the exclusion check
+        // short-circuited it, the recent-write marker would survive into
+        // the next copy and cause a spurious echo.
         if writer?.consumeRecentWrite(matching: item.canonicalHash) == true { return }
+
+        // Suppress transmission only — the item is already in the local
+        // clipboard and clipboard history, and deliberately stays there.
+        // Both branches log: "no suppression line" alone must never be
+        // the evidence that a copy went out, because it is
+        // indistinguishable from the copy never reaching this decision.
+        let decision = SuppressionPolicy.decide(ring: foreground, settings: settings,
+                                                windowStart: windowStart, windowEnd: now)
+        if decision.suppress {
+            NSLog("PasteboardWatcher: suppressed item from %@ (%d formats)",
+                  decision.source?.displayName ?? "?", item.formats.count)
+            return
+        }
+        NSLog("PasteboardWatcher: sending item (%d formats)", item.formats.count)
 
         onLocalCopy?(item)
     }

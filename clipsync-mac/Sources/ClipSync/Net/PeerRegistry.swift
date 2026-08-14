@@ -82,8 +82,27 @@ final class PeerRegistry {
         onTrustRequested?(didHex, entry.peer.name, entry.endpoint)
     }
 
+    /// Consulted for each peer before sending. Nil means send to
+    /// everyone, which is what this class did before pausing existed and
+    /// what it still does if nobody wires it up. Keeping the decision
+    /// outside means the registry never learns what a pause is, and the
+    /// global and per-peer cases both arrive through one predicate.
+    var shouldSendTo: ((String) -> Bool)?
+
     func broadcast(_ item: ClipboardItem) {
-        for pc in connections.values { pc.send(item: item) }
+        for (hex, pc) in connections {
+            // Both branches log. A skip needs saying, or a user watches
+            // nothing arrive with no way to tell a pause from a broken
+            // link; and a send needs saying too, or the absence of a skip
+            // line is indistinguishable from the item never reaching this
+            // method.
+            if let gate = shouldSendTo, !gate(hex) {
+                NSLog("Broadcast: not sending to %@ (paused)", String(hex.prefix(8)))
+                continue
+            }
+            NSLog("Broadcast: sending to %@", String(hex.prefix(8)))
+            pc.send(item: item)
+        }
     }
 
     private func emit() {
