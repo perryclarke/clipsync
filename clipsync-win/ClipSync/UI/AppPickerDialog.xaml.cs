@@ -38,6 +38,11 @@ public sealed class AppRow
     public Visibility DetailVisibility =>
         Detail.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
 
+    /// A generic app glyph stands in when the shell had no icon to give:
+    /// a blank 24px gap makes the row look broken.
+    public Visibility IconVisibility => Icon is null ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility FallbackVisibility => Icon is null ? Visibility.Visible : Visibility.Collapsed;
+
     private readonly IReadOnlyList<string> _searchable;
 
     /// Matches on any of the app's names, not just the displayed one: on a
@@ -100,15 +105,46 @@ public sealed partial class AppPickerDialog : ContentDialog
         Busy.Visibility = Visibility.Collapsed;
         if (_enumerationFailed) ErrorText.Visibility = Visibility.Visible;
 
-        AppList.ItemsSource = _all;
+        // ApplyFilter, not Show(_all): the search box has focus from the
+        // moment the dialog opens, and enumeration takes a few hundred
+        // milliseconds. Anything typed in that window would otherwise be
+        // discarded here, leaving a query on screen over an unfiltered list.
+        ApplyFilter();
     }
 
-    private void OnSearchChanged(object sender, TextChangedEventArgs e)
+    private void OnSearchChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        // Only user typing refilters; a programmatic Text assignment (and the
+        // suggestion machinery we don't use) must not churn the list.
+        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
     {
         var q = SearchBox.Text.Trim();
-        AppList.ItemsSource = string.IsNullOrEmpty(q)
-            ? _all
-            : _all.Where(a => a.Matches(q)).ToList();
+        Show(string.IsNullOrEmpty(q) ? _all : _all.Where(a => a.Matches(q)).ToList());
+    }
+
+    /// An empty list means two different things, and saying the wrong one is
+    /// worse than saying nothing: enumeration failing is a defect the user
+    /// can route around with Browse…, while a filter matching nothing is
+    /// ordinary. `_enumerationFailed` is the only thing that distinguishes
+    /// them, since both arrive here as zero rows.
+    private void Show(IReadOnlyList<AppRow> rows)
+    {
+        AppList.ItemsSource = rows;
+
+        if (rows.Count > 0 || _enumerationFailed)
+        {
+            NoResults.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        NoResults.Text = SearchBox.Text.Trim().Length > 0
+            ? "No apps match your search."
+            : "Every installed app is already excluded.";
+        NoResults.Visibility = Visibility.Visible;
     }
 
     /// SecondaryButton = Browse. Keep the dialog open while the file

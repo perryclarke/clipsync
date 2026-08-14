@@ -25,6 +25,10 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1721" />
+    <!-- SettingsCard / SettingsExpander: the Windows 11 settings row and group.
+         Its assemblies land in the publish output, which installer\ClipSync.wxs
+         harvests wholesale, so nothing in the MSI needs updating for it. -->
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.250402" />
     <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
     <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
     <PackageReference Include="PeterO.Cbor" Version="4.5.5" />

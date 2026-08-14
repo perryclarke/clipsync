@@ -5,20 +5,38 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="ClipSync">
     <Border Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
-            BorderBrush="{ThemeResource SystemControlForegroundBaseMediumLowBrush}"
+            BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}"
             BorderThickness="1" CornerRadius="8" Padding="16">
         <StackPanel Spacing="8" MinWidth="240">
             <TextBlock Text="ClipSync" FontWeight="SemiBold" FontSize="16"/>
             <TextBlock x:Name="DidText" FontSize="11" FontFamily="Consolas"
-                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             <MenuFlyoutSeparator/>
             <StackPanel x:Name="PeerList" Spacing="4"/>
             <TextBlock x:Name="EmptyText" Text="Looking for peers on the local network..."
-                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                        FontSize="13"/>
             <MenuFlyoutSeparator/>
-            <Button Content="Settings…" Click="OnSettings" HorizontalAlignment="Stretch"/>
-            <Button Content="Quit" Click="OnQuit" HorizontalAlignment="Stretch"/>
+            <!-- AutomationProperties.Name on every button below: a Button
+                 whose Content is a Panel rather than a string exposes no
+                 accessible name of its own, so without these the tray menu
+                 reads as a row of unnamed buttons. -->
+            <Button Click="OnSettings" HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Left"
+                    AutomationProperties.Name="Settings">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <FontIcon Glyph="&#xE713;" FontSize="14"/>
+                    <TextBlock Text="Settings…"/>
+                </StackPanel>
+            </Button>
+            <Button Click="OnQuit" HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Left"
+                    AutomationProperties.Name="Quit">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <FontIcon Glyph="&#xE7E8;" FontSize="14"/>
+                    <TextBlock Text="Quit"/>
+                </StackPanel>
+            </Button>
         </StackPanel>
     </Border>
 </Window>

@@ -59,9 +59,16 @@ public sealed class Win32WindowResolver : IWindowResolver
             // message pump (WINEVENT_OUTOFCONTEXT) on every focus change, and
             // FileVersionInfo.GetVersionInfo is an uncached synchronous file
             // read that a network path or a stalled filesystem filter can
-            // block on. Matching uses Key only and this DisplayName is never
-            // shown in the UI -- names there come from InstalledApps -- so its
-            // sole consumer is the opt-in debug log.
+            // block on. Matching uses Key only, so nothing depends on this
+            // name being the app's friendly one.
+            //
+            // It is not purely diagnostic, though: an app added through
+            // "Exclude the app I switch to" is stored as the identity this
+            // method returns, so the settings list shows this name rather
+            // than the Start Menu one. That is why a captured app can appear
+            // as "acrodist" where the picker would have said "Adobe Acrobat
+            // Distiller". Reading the friendly name here is the wrong trade;
+            // resolving it when the exclusion is stored would be the fix.
             return new AppIdentity(AppKind.Exe, exePath,
                                    System.IO.Path.GetFileNameWithoutExtension(exePath), exePath);
         }

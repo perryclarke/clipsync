@@ -9,45 +9,97 @@
     SecondaryButtonText="Browse…"
     CloseButtonText="Cancel"
     DefaultButton="Primary">
-    <Grid RowSpacing="8" Height="420" Width="420">
+    <Grid RowSpacing="8" Height="400" Width="400">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBox Grid.Row="0" x:Name="SearchBox" PlaceholderText="Search apps"
-                 TextChanged="OnSearchChanged"/>
+        <!-- AutoSuggestBox rather than TextBox: this is search-as-you-type
+             over the installed-app list, and it carries the search affordance
+             and clear button for free. Suggestions stay off — the list below
+             is the result surface. -->
+        <!-- Placeholder text is not a label: it disappears the moment anyone
+             types, and screen readers do not treat it as one. -->
+        <AutoSuggestBox Grid.Row="0" x:Name="SearchBox"
+                        PlaceholderText="Search apps"
+                        QueryIcon="Find"
+                        AutomationProperties.Name="Search installed apps"
+                        TextChanged="OnSearchChanged"/>
 
-        <Grid Grid.Row="1">
-            <!-- ItemsSource, not hand-built ListViewItems: the rows are
-                 rebuilt on every keystroke, and only a virtualizing
-                 ItemsSource keeps that from realising every container. -->
-            <ListView x:Name="AppList" SelectionMode="Single">
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="ui:AppRow">
-                        <Grid ColumnSpacing="10" Padding="0,2">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Image Grid.Column="0" Width="24" Height="24"
-                                   VerticalAlignment="Center" Source="{x:Bind Icon}"/>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Text="{x:Bind Detail}" Visibility="{x:Bind DetailVisibility}"
-                                           FontSize="11" TextTrimming="CharacterEllipsis"
-                                           Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
-                            </StackPanel>
-                        </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-            <ProgressRing x:Name="Busy" IsActive="True"
-                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            <TextBlock x:Name="ErrorText" Visibility="Collapsed" TextWrapping="Wrap"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                       Text="Could not read the installed-app list. Use Browse… to pick an .exe instead."/>
-        </Grid>
+        <Border Grid.Row="1"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="4">
+            <Grid>
+                <!-- ItemsSource, not hand-built ListViewItems: the rows are
+                     rebuilt on every keystroke, and only a virtualizing
+                     ItemsSource keeps that from realising every container. -->
+                <ListView x:Name="AppList" SelectionMode="Single"
+                          Background="Transparent" Padding="0,4"
+                          AutomationProperties.Name="Installed apps">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Padding" Value="12,6"/>
+                            <Setter Property="MinHeight" Value="0"/>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="ui:AppRow">
+                            <!-- Named explicitly: a row whose content is an
+                                 image plus two TextBlocks otherwise announces
+                                 as the merged glob of both lines, with the
+                                 executable path read out character by
+                                 character after the app's name. -->
+                            <Grid ColumnSpacing="12"
+                                  AutomationProperties.Name="{x:Bind Name}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Decorative: the app's name is right beside
+                                     it, so an unnamed Image in the tree is
+                                     just a stop with nothing to say. -->
+                                <Grid Grid.Column="0" Width="24" Height="24"
+                                      VerticalAlignment="Center"
+                                      AutomationProperties.AccessibilityView="Raw">
+                                    <Image Source="{x:Bind Icon}" Visibility="{x:Bind IconVisibility}"/>
+                                    <FontIcon Glyph="&#xECAA;" FontSize="16"
+                                              Visibility="{x:Bind FallbackVisibility}"
+                                              Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                </Grid>
+
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{x:Bind Detail}" Visibility="{x:Bind DetailVisibility}"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <ProgressRing x:Name="Busy" IsActive="True"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+                <TextBlock x:Name="NoResults" Visibility="Collapsed"
+                           Text="No apps match your search."
+                           TextWrapping="Wrap" TextAlignment="Center"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Margin="24,0"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                <TextBlock x:Name="ErrorText" Visibility="Collapsed"
+                           Text="Could not read the installed-app list. Use Browse… to pick an .exe instead."
+                           TextWrapping="Wrap" TextAlignment="Center"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Margin="24,0"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </Grid>
+        </Border>
     </Grid>
 </ContentDialog>
