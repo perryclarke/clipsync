@@ -137,14 +137,38 @@
                  scrolled the row above this is cut in half, and a shared
                  edge there made the add row look like the bottom of that
                  half-row instead of a separate thing. -->
-            <controls:SettingsCard Grid.Row="3" Header="Add an app to this list"
-                    Margin="0,8,0,0" CornerRadius="4" BorderThickness="1">
+            <!-- A Border rather than a SettingsCard, unlike the rows above.
+                 SettingsCard sized itself from its header alone here, which
+                 with only one line of text came out shorter than its own
+                 button needed, so the button overflowed the padded content
+                 area downward and sat 13px below the card's centre. Neither
+                 MinHeight nor VerticalContentAlignment moved it: the control
+                 lays its content out from its template, and the template is
+                 compiled into the toolkit where it cannot be adjusted from
+                 here. A label beside a button does not need the control's
+                 semantics, so this draws the same card by hand and centres
+                 both. Metrics are matched to the rows deliberately: 68 high,
+                 16 in from the edge. -->
+            <Border Grid.Row="3" Margin="0,8,0,0" MinHeight="68" Padding="16,0"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="4">
+              <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="Add an app to this list"
+                           VerticalAlignment="Center" TextWrapping="Wrap"/>
+
                 <!-- Two ways in, one control: picking from the installed list
                      is the obvious path, but it keys an app on its Start Menu
                      shortcut target, which for launcher-based apps is not the
                      executable that owns the foreground window. Capture is
                      the escape hatch for those. -->
-                <DropDownButton x:Name="AddButton" Content="Add app"
+                <DropDownButton Grid.Column="1" x:Name="AddButton" Content="Add app"
+                                VerticalAlignment="Center"
                                 AutomationProperties.Name="Add app to the excluded list">
                     <DropDownButton.Flyout>
                         <MenuFlyout Placement="Bottom">
@@ -163,7 +187,8 @@
                         </MenuFlyout>
                     </DropDownButton.Flyout>
                 </DropDownButton>
-            </controls:SettingsCard>
+              </Grid>
+            </Border>
         </Grid>
 
         <InfoBar Grid.Row="2" x:Name="CaptureStatus"
