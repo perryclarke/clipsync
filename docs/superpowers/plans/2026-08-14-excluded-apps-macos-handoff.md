@@ -1,8 +1,11 @@
-# Excluded apps on macOS — handoff
+# Send-side controls on macOS — handoff
+
+**Scope:** two features, both shipped on Windows and neither started on
+macOS — **excluded apps** and **pausing** (global and per-peer).
 
 **Status:** Windows shipped and merged to `main`. macOS not started.
 **Design of record:** `docs/superpowers/specs/2026-08-09-excluded-apps-design.md`
-(the macOS section starts at "macOS (specified now, implemented later)").
+— now covers both features, with a macOS section for each.
 **Windows plan, for reference:** `docs/superpowers/plans/2026-08-09-excluded-apps-windows.md`
 
 This document is the thing the spec cannot be: a list of what the Windows
@@ -12,6 +15,10 @@ Read the spec for *what to build*. Read this for *what will bite you*.
 Everything here was learned by building and driving the Windows side. None
 of it is speculation about macOS behaviour, and where I am guessing about
 macOS I say so.
+
+The two features share a settings file, a send path, and one principle —
+**everything here governs sending; receiving is never affected**. Build
+them together; separating them means touching the same three places twice.
 
 ---
 
@@ -263,6 +270,11 @@ Worth testing (all of these caught or would have caught a real Windows bug):
 - Ring interval query (§3): an app that held focus for part of the polling
   window is found.
 - The suppression decision itself, including the fail-open branch.
+- The two pause gates as *independent*: un-muting a peer while globally
+  paused still sends nothing, and resuming globally leaves a muted peer
+  muted. Plus the persistence asymmetry — a mute survives a relaunch, a
+  global pause does not — and that mutes round-trip alongside excluded
+  apps without either clobbering the other in the shared file.
 
 **And one end-to-end check that no unit test substitutes for:** exclude a
 real app, copy inside it, and confirm from the log that the item was
@@ -276,11 +288,11 @@ negative result.
 
 ---
 
-## 9a. Also missing on macOS: pause / resume
+## 9a. The other half: pause / resume
 
-Windows has since gained a send-side pause, which macOS does not have.
-It is small and worth doing in the same pass as the exclusions, because
-it lands in the same place: the send path and the menu.
+Now specified in the design doc alongside the exclusions; this section is
+only the field notes. Worth doing in the same pass, because it lands in
+the same three places: the send path, the settings file, and the menu.
 
 - **Global** — a *Pause syncing* item in `MenuBarView` between Settings
   and Quit, plus the state in the popover title. Not persisted.
@@ -302,6 +314,18 @@ One thing learned verifying it, which applies to any of this: log both
 branches of the send decision. Logging only the skip meant "no skip line"
 was indistinguishable from "the item never reached the send path", and a
 test that looked like it passed was actually inconclusive.
+
+Two more from the Windows build, both cheap to avoid and annoying to
+find:
+
+- **Show the paused state where the user already looks.** A tooltip needs
+  hovering to find. Windows badges the tray icon; the macOS analogue is
+  the `NSStatusItem` image. Also put it in the popover header, and make a
+  muted peer's row say "Paused" rather than "Online" — the reason nothing
+  reaches it is the mute, not the network.
+- **Label the controls with the verb, not the state.** The button says
+  what pressing it will do. It is the title and the row text that report
+  what is currently true.
 
 ## 10. Open questions
 
@@ -325,7 +349,10 @@ test that looked like it passed was actually inconclusive.
 | Concern | File |
 |---|---|
 | Identity model | `clipsync-win/ClipSync.Core/Settings/AppIdentity.cs` |
-| Settings persistence | `clipsync-win/ClipSync.Core/Settings/AppSettings.cs` |
+| Settings persistence (both features) | `clipsync-win/ClipSync.Core/Settings/AppSettings.cs` |
+| Pause state and the two gates | `clipsync-win/ClipSync.Core/Sync/SyncPause.cs` |
+| Per-peer send gate | `clipsync-win/ClipSync/Net/PeerRegistry.cs` |
+| Tray controls and paused icon | `clipsync-win/ClipSync/UI/TrayPopup.xaml{,.cs}`, `UI/TrayIcon.cs` |
 | Foreground ring | `clipsync-win/ClipSync.Core/Clipboard/ForegroundRing.cs` |
 | Foreground tracker | `clipsync-win/ClipSync.Core/Clipboard/ForegroundTracker.cs` |
 | Window → app resolution | `clipsync-win/ClipSync.Core/Clipboard/Win32WindowResolver.cs` |
