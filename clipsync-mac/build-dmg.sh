@@ -35,11 +35,20 @@ echo "Building release with: $SWIFT_BIN"
 
 echo "Updating app bundle..."
 cp "$SCRIPT_DIR/.build/release/ClipSync" "$APP/Contents/MacOS/ClipSync"
-codesign --force --sign - "$APP"
+# Prefer a real signing identity over ad-hoc. Ad-hoc gives every build a
+# different code identity, so the keychain re-prompts for the TLS identity
+# key on each rebuild (several dialogs per launch); a stable identity is
+# prompted once ("Always Allow") and never again.
+SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')"
+codesign --force --sign "${SIGN_ID:--}" "$APP"
+echo "Signed with: ${SIGN_ID:-ad-hoc}"
 
 echo "Staging DMG contents..."
 cp -R "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
+mkdir "$STAGING/.background"
+cp "$SCRIPT_DIR/dmg/background.tiff" "$STAGING/.background/background.tiff"
 
 mkdir -p "$DIST"
 rm -f "$DMG_OUT"
@@ -62,12 +71,15 @@ tell application "Finder"
         set current view of container window to icon view
         set toolbar visible of container window to false
         set statusbar visible of container window to false
-        set the bounds of container window to {200, 120, 800, 520}
+        -- content area 660x400, matching the background image
+        set the bounds of container window to {200, 120, 860, 548}
         set viewOptions to the icon view options of container window
         set arrangement of viewOptions to not arranged
         set icon size of viewOptions to 128
-        set position of item "ClipSync.app" of container window to {150, 200}
-        set position of item "Applications" of container window to {450, 200}
+        set text size of viewOptions to 13
+        set background picture of viewOptions to file ".background:background.tiff"
+        set position of item "ClipSync.app" of container window to {165, 185}
+        set position of item "Applications" of container window to {495, 185}
         update without registering applications
         delay 1
         close
