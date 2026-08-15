@@ -35,6 +35,9 @@ echo "Building release with: $SWIFT_BIN"
 
 echo "Updating app bundle..."
 cp "$SCRIPT_DIR/.build/release/ClipSync" "$APP/Contents/MacOS/ClipSync"
+# The bundle is not tracked by git; the repo's Info.plist is the source of
+# truth, so sync it (before signing — plist edits invalidate the signature).
+cp "$SCRIPT_DIR/Info.plist" "$APP/Contents/Info.plist"
 # Prefer a real signing identity over ad-hoc. Ad-hoc gives every build a
 # different code identity, so the keychain re-prompts for the TLS identity
 # key on each rebuild (several dialogs per launch); a stable identity is
