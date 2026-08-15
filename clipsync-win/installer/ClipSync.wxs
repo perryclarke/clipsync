@@ -4,7 +4,7 @@
   <Package
       Name="ClipSync"
       Manufacturer="Perry Clarke"
-      Version="0.5.0.0"
+      Version="0.6.0.0"
       UpgradeCode="A2D6C2E0-0F4F-4F0B-9D1F-7B9C3F2B6D11"
       Scope="perUser"
       Compressed="yes"
