@@ -114,14 +114,23 @@ promote it to the persistent trust store, so future launches reconnect
 without clicks. That is the intended design for a LAN-only personal
 tool.
 
-One area is still short of the full `PROTOCOL.md` spec:
+Items are synced whole up to **100 MiB**: formats up to 64 KiB travel
+inline, larger ones (images, big text) are streamed in 1 MiB chunks and
+reassembled on the other side before anything touches the clipboard. If
+an item is over the cap, the sender keeps the formats that fit (in
+clipboard order) and drops the rest, logging each drop; a copy where
+nothing fits is not synced. There is no prompt or per-item consent — the
+cap exists precisely because a copy is sent immediately, with no way to
+wait for the receiver to want it. Peers older than 0.7 do not advertise
+the `stream` capability and receive only the ≤ 64 KiB formats.
 
-1. **Large-item / streaming flow.** Inline payloads (≤ 64 KiB) sync
-   today. The `LargeItemOffer` / `LargeItemAccept` / `FileChunk` /
-   `FileEnd` path (`PROTOCOL.md` §6.3–6.6) has its message types and the
-   `stream_id` payload variant defined, but no codecs or handlers, so
-   anything larger than 64 KiB is not yet transferred. The >100 MiB
-   prompt UI and streamed file transfer are the remaining work.
+Still open:
+
+1. **File contents are not transferred.** A copied file arrives as its
+   path only (`application/x-file-url`), which the other machine cannot
+   use; the writers skip it. Sending file bytes (destination folder,
+   many files, name collisions) is a separate piece of work that would
+   reuse the same chunk stream.
 
 The macOS self-signed `SecIdentity` builder (`Identity.swift`
 `createKeychainIdentity()`) and its Windows counterpart

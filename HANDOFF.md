@@ -82,3 +82,62 @@ Once Windows builds and discovers:
 - Mac Swift toolchain: `/Applications/Xcode-26.1.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift`.
 - Apple Developer cert is downloaded but not used — ad-hoc signing is sufficient for personal use. Developer ID + notarization is a separate future step if distributing.
 - Windows target: Windows 11 25H2+, .NET 9, Windows App SDK 1.6+, WinUI 3.
+
+## Handoff 2026-08-17 — large-item streaming (for the Mac)
+
+Branch `large-item-streaming` (PR against `main`). Windows side is built,
+unit-tested (73/73), and running; the **macOS side is written but has not
+been compiled** — there is no Swift toolchain on the Windows box. Design:
+`docs/superpowers/specs/2026-08-17-large-item-streaming-design.md`.
+
+### What changed on the Mac
+
+- `Sources/ClipSync/Net/StreamPlanner.swift` (new) — pure: 100 MiB item
+  cap (drop formats in order, log), 64 KiB inline threshold, `stream`
+  capability gate, per-connection stream ids.
+- `Sources/ClipSync/Net/StreamAssembler.swift` (new) — pure state machine:
+  park / chunk / end / materialise; one pending item per connection, 30 s
+  idle drop, rejects over-cap declared sizes, gaps, overruns, bad hashes.
+- `Sources/ClipSync/Net/Protocol.swift` — `encodeFileChunk/End`,
+  `decodeFileChunk/End`, `decodeHelloCaps`.
+- `Sources/ClipSync/Net/PeerConnection.swift` — advertises `stream` in
+  Hello (`localCaps`), records `peerCaps`, `send(item:)` now plans and
+  emits item + chunks + end, `handle` feeds the assembler on
+  `.clipboardItem` / `.fileChunk` / `.fileEnd`, keepalive timer drops a
+  stale pending item. `import Crypto` added (SHA-256 of streams).
+- Tests: `StreamPlannerTests`, `StreamAssemblerTests` (run in the normal
+  suite) and `StreamLoopbackTests` (opt-in, like `PeerCertBindingTests`).
+
+Nothing outside `Net/` was touched: watcher, writer, registry, pause,
+menu are as before. `PROTOCOL.md` §6.1/6.2/6.3–6.5/10 and README updated.
+
+### To do on the Mac
+
+1. `swift build` — expect possible small Swift fixes; the logic mirrors the
+   C# byte-for-byte, so if something disagrees, the C# in
+   `clipsync-win/ClipSync.Core/Net/` is the reference.
+2. `swift test` — planner + assembler must pass; then
+   `CLIPSYNC_TLS_LOOPBACK=1 swift test --filter StreamLoopback` for the
+   5 MB item through two real `PeerConnection`s over mTLS.
+3. Rebuild the app (`build-dmg.sh`) and run it against the Windows build on
+   this branch. Windows is already running the new code, so until the Mac
+   is rebuilt Windows logs `dropping <mime> (x MB): peer lacks stream
+   capability` for >64 KiB formats — that line disappearing is the first
+   sign both sides speak `stream`.
+4. End-to-end: Retina screenshot Mac → Windows (TIFF + PNG both stream;
+   Windows shows the PNG); >64 KiB text Windows → Mac; something over
+   100 MB to see the drop line. Windows log: `--debug`,
+   `%LOCALAPPDATA%\ClipSync\debug.log`; Mac: `log stream --predicate
+   'process == "ClipSync"'`.
+
+### Notes / gotchas
+
+- The whole stream is enqueued on `NWConnection.send` at once (up to 100
+  frames of 1 MiB). NW buffers in memory; the data is already in memory,
+  so this is fine, but a second copy during a long Wi-Fi transfer queues
+  behind it. Cancellation was consciously left out (spec).
+- `StreamAssembler` runs on the connection's queue (`.main`, same as the
+  receive handler and keepalive `Timer`); no locking.
+- Files still travel as paths only — out of scope, recorded in README.
+- Bump to 0.7.0 on both platforms when this ships; the `stream` cap is
+  the compatibility signal, not the version.

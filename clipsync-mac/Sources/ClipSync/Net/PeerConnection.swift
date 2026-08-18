@@ -1,4 +1,5 @@
 import Foundation
+import Crypto
 import Network
 import Security
 
@@ -24,6 +25,19 @@ final class PeerConnection {
     /// registry and SyncPause key off this value.
     private(set) var peerDid: Data?
     private(set) var peerName: String?
+    /// Capabilities the peer advertised in its Hello. "stream" means it
+    /// reassembles FileChunk/FileEnd; without it, formats over the inline
+    /// limit are dropped rather than streamed (StreamPlanner).
+    private(set) var peerCaps: Set<String> = []
+    var peerStreams: Bool { peerCaps.contains("stream") }
+
+    static let localCaps = ["text", "image", "files", "rich", "stream"]
+
+    /// Per-connection stream_id source for formats we stream out.
+    private var nextStreamId: UInt64 = 1
+    /// Reassembly of streamed items the peer sends us. Touched only on
+    /// the connection's queue (receive handler and keepalive timer).
+    private let assembler = StreamAssembler()
 
     private var keepaliveTimer: Timer?
     private var lastReceive = Date()
@@ -87,7 +101,37 @@ final class PeerConnection {
         connection.send(content: frame, completion: .contentProcessed { _ in })
     }
 
-    func send(item: ClipboardItem) { send(Codec.encodeClipboardItem(item)) }
+    /// Put a locally built (all-inline) item on the wire: small formats
+    /// inline, large ones as FileChunk/FileEnd streams after the item
+    /// frame, per StreamPlanner. NWConnection.send preserves order, so
+    /// the sequence of sends is the sequence on the wire. PROTOCOL.md
+    /// §6.5, §10.
+    func send(item: ClipboardItem) {
+        let plan = StreamPlanner.plan(item, peerStreams: peerStreams) {
+            defer { nextStreamId += 1 }
+            return nextStreamId
+        }
+        for d in plan.dropped {
+            onLog?(String(format: "dropping %@ (%.1f MB): %@", d.mime, Double(d.size) / 1048576, d.reason))
+        }
+        guard let wire = plan.wireItem else {
+            onLog?("nothing of the item fits, not sending")
+            return
+        }
+        send(Codec.encodeClipboardItem(wire))
+        for st in plan.streams {
+            onLog?(String(format: "streaming %.1f MB as stream %llu", Double(st.data.count) / 1048576, st.streamId))
+            var off = 0
+            while off < st.data.count {
+                let n = min(StreamPlanner.chunkBytes, st.data.count - off)
+                send(Codec.encodeFileChunk(streamId: st.streamId, offset: UInt64(off),
+                                           data: st.data.subdata(in: off ..< off + n)))
+                off += n
+            }
+            send(Codec.encodeFileEnd(streamId: st.streamId, totalSize: UInt64(st.data.count),
+                                     sha256: Data(SHA256.hash(data: st.data))))
+        }
+    }
 
     /// Read the peer's leaf certificate from this connection's own
     /// negotiated TLS metadata and set `peerDid` to its SPKI hash. Uses
@@ -110,7 +154,7 @@ final class PeerConnection {
 
     private func sendHello() {
         let f = Codec.encodeHello(did: identity.did, name: Host.current().localizedName ?? "Mac",
-                                  caps: ["text", "image", "files", "rich"])
+                                  caps: Self.localCaps)
         send(f)
     }
 
@@ -121,6 +165,9 @@ final class PeerConnection {
         keepaliveTimer?.invalidate()
         keepaliveTimer = Timer.scheduledTimer(withTimeInterval: Self.pingInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
+            if self.assembler.dropStale(now: Date()) {
+                self.onLog?("dropped a streamed item with no progress for 30 s")
+            }
             if Date().timeIntervalSince(self.lastReceive) > Self.idleTimeout {
                 self.onLog?("keepalive timeout, closing \(self.peerName ?? "?")")
                 self.close()
@@ -179,10 +226,26 @@ final class PeerConnection {
             }
             if case let .map(m) = cbor,
                case let .utf8String(n)? = m["name"] { self.peerName = n }
+            peerCaps = Codec.decodeHelloCaps(cbor)
             onLog?("hello from \(peerName ?? "?") \(peerDid?.prefix(4).map { String(format: "%02x", $0) }.joined() ?? "?")")
             onReady?()
         case .clipboardItem:
-            if let item = Codec.decodeClipboardItem(cbor) { onItem?(item) }
+            guard let item = Codec.decodeClipboardItem(cbor) else { return }
+            if !StreamAssembler.needsAssembly(item) { onItem?(item); return }
+            let r = assembler.park(item, now: Date())
+            if let why = r.reason { onLog?("park streamed item: \(r.outcome) (\(why))") }
+        case .fileChunk:
+            guard let ch = Codec.decodeFileChunk(cbor) else { return }
+            let r = assembler.chunk(streamId: ch.streamId, offset: ch.offset, data: ch.data, now: Date())
+            if r.outcome != .ok { onLog?("chunk: \(r.outcome) (\(r.reason ?? ""))") }
+        case .fileEnd:
+            guard let e = Codec.decodeFileEnd(cbor) else { return }
+            let r = assembler.end(streamId: e.streamId, totalSize: e.totalSize, sha256: e.sha256, now: Date())
+            if r.outcome != .ok { onLog?("end: \(r.outcome) (\(r.reason ?? ""))") }
+            if let done = assembler.takeCompleted() {
+                onLog?("streamed item complete (\(done.formats.count) formats)")
+                onItem?(done)
+            }
         case .ping:
             send(Codec.encodePong())
         case .pong:
