@@ -141,6 +141,10 @@ final class Discovery {
 
         if trustStore.contains(hex: peerDid) {
             if !peers.isConnected(didHex: peerDid) {
+                // Show it as "Looking…" the moment it's seen, before the
+                // connect resolves, so a known peer isn't invisible while
+                // it links up.
+                peers.noteLooking(name: peerName, didHex: peerDid)
                 connect(to: endpoint, didHex: peerDid)
             }
         } else {
@@ -173,6 +177,11 @@ final class Discovery {
         let registryClose = pc.onClose
         pc.onClose = { [weak self] in
             self?.connecting.remove(didHex)
+            // A connection that closed without ever completing its TLS
+            // handshake never reached the peer — evidence it is off, so the
+            // registry stops showing "Looking…". A live link that later
+            // drops (becameReady == true) is a normal disconnect, not this.
+            if !pc.becameReady { self?.peers.markUnreachable(didHex: didHex) }
             registryClose?()
         }
         pc.start()

@@ -27,7 +27,10 @@ final class PeerConnection {
 
     private var keepaliveTimer: Timer?
     private var lastReceive = Date()
-    private var becameReady = false
+    /// Whether the TLS handshake ever completed. Lets a caller tell a
+    /// connect attempt that never reached the peer (→ unreachable) from a
+    /// live link that later dropped.
+    private(set) var becameReady = false
 
     private static let pingInterval: TimeInterval = 20
     private static let idleTimeout: TimeInterval = 75

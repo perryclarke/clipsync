@@ -63,6 +63,7 @@ struct MenuBarView: View {
         switch peer.state {
         case .online: return "Online"
         case .pending: return "Not trusted"
+        case .looking: return "Looking…"
         case .offline: return "Offline"
         }
     }
