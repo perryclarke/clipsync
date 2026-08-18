@@ -89,11 +89,15 @@ public sealed class PeerConnection
             }
 
             // The pinned cert, not the (unauthenticated) Hello message, is
-            // the source of truth for who we're talking to.
+            // the source of truth for who we're talking to. Bind PeerDid
+            // here, before any frame is read, so nothing keyed on it (the
+            // registry, the per-peer mute) can ever see a self-asserted
+            // value; the Hello's did is only checked for agreement below.
             if (_ssl.RemoteCertificate is not { } remoteCert)
                 throw new AuthenticationException("no peer certificate after handshake");
             var leaf = remoteCert as X509Certificate2 ?? new X509Certificate2(remoteCert);
             _verifiedDid = Identity.ComputeDid(leaf);
+            PeerDid = _verifiedDid;
 
             Identity.Log($"PeerConnection: TLS handshake complete, role={_role}");
             await SendHelloAsync();
