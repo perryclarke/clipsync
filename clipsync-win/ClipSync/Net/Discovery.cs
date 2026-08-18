@@ -103,6 +103,38 @@ public sealed class Discovery
         _mdns = mdns;
         _sd = sd;
         Identity.Log($"Discovery: mDNS started, advertising port {_port}");
+        _ = StartupBurst(sd, profile);
+    }
+
+    /// Repeat the startup announce and query with backoff. mDNS is a single
+    /// multicast UDP datagram each way, and one lost packet otherwise costs
+    /// a full MaintenanceLoop interval: the debug log shows startups where
+    /// the peer only appeared at +31 s, exactly when the loop re-queried,
+    /// and then connected within a second. RFC 6762 §5.2 expects a querier
+    /// to retransmit at 1 s, 2 s, 4 s…; Makaretu leaves that to us. The
+    /// re-announces cover the other direction — a peer that missed our first
+    /// announce dials us as soon as it hears the second. Stops quietly if
+    /// mDNS was rebuilt underneath it (sleep/wake), since the restart runs
+    /// its own burst.
+    private async Task StartupBurst(ServiceDiscovery sd, ServiceProfile profile)
+    {
+        // Gaps between sends: fires at t+1, +3, +7, +15 s, after which the
+        // 30 s MaintenanceLoop takes over.
+        int[] gapsSeconds = { 1, 2, 4, 8 };
+        var elapsed = 0;
+        for (var i = 0; i < gapsSeconds.Length; i++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(gapsSeconds[i]));
+            elapsed += gapsSeconds[i];
+            if (!ReferenceEquals(_sd, sd)) return;
+            try
+            {
+                if (i < 2) sd.Announce(profile);
+                sd.QueryServiceInstances("_clipsync._tcp");
+                Identity.Log($"Discovery: startup burst {i + 1}/{gapsSeconds.Length} (t+{elapsed}s)");
+            }
+            catch (Exception ex) { Identity.Log($"Discovery: startup burst failed: {ex.Message}"); }
+        }
     }
 
     /// Choose which NICs Makaretu multicasts on. Given the OS candidate set,
@@ -469,6 +501,11 @@ public sealed class Discovery
                     Identity.Log($"ConnectAsync: {addr}:{ep.Port} failed: {ex.GetType().Name}: {ex.Message}");
                 }
             }
+            // Every address refused: that is evidence the peer is off, and
+            // the registry stops showing it as Looking. (Falling out of the
+            // loop with the peer already connected is not that — the check
+            // at the top of the loop returned before this line.)
+            _peers.MarkUnreachable(key);
         }
         finally
         {

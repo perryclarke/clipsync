@@ -158,6 +158,7 @@ public sealed partial class TrayPopup : Window
             _ when muted      => ("SystemFillColorCautionBrush", Colors.Orange, "Paused"),
             PeerState.Online  => ("SystemFillColorSuccessBrush", Colors.LimeGreen, "Online"),
             PeerState.Pending => ("SystemFillColorCautionBrush", Colors.Orange, "Waiting to be trusted"),
+            PeerState.Looking => ("TextFillColorSecondaryBrush", Colors.Gray, "Looking…"),
             _                 => ("TextFillColorDisabledBrush", Colors.Gray, "Offline"),
         };
 
