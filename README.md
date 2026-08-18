@@ -127,3 +127,10 @@ The macOS self-signed `SecIdentity` builder (`Identity.swift`
 `createKeychainIdentity()`) and its Windows counterpart
 (`Identity.cs` `CreateSelfSignedCert()`) are **complete** — earlier
 revisions of this list described them as stubs; they no longer are.
+
+## Disclosure
+While I have 40 years experience with C, 30 with C++ and 20 with Objective-C, I have not
+written anything substantial with either C# or Swift which is what this application is 
+implemented in. My role here was closer to product manager: I designed the application 
+and communicated the requirements to the "programming team".  Or, put another
+way, this was vibe coded.
