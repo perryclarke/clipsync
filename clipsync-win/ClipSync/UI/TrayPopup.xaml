@@ -11,19 +11,27 @@
         <StackPanel Spacing="10" MinWidth="288">
 
             <!-- Title and identity share a line, the way a Windows 11 flyout
-                 header does. The title carries the global pause state, so a
-                 paused device says so without the user having to read down to
-                 the button; it trims rather than pushing the identity off the
-                 right edge. -->
+                 header does. A global pause shows as a badge beside the title
+                 rather than rewording it, so "ClipSync" stays scannable and
+                 the paused state reads as a state. Same layout as the Mac
+                 popover header. -->
             <Grid Margin="4,2,4,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="TitleText" Text="ClipSync"
-                           Style="{StaticResource BodyStrongTextBlockStyle}"
-                           VerticalAlignment="Center"
-                           TextTrimming="CharacterEllipsis"/>
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock x:Name="TitleText" Text="ClipSync"
+                               Style="{StaticResource BodyStrongTextBlockStyle}"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+                    <Border x:Name="PausedBadge" Visibility="Collapsed"
+                            Background="Orange" CornerRadius="8"
+                            Padding="7,1" VerticalAlignment="Center">
+                        <TextBlock Text="Paused" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="White"/>
+                    </Border>
+                </StackPanel>
                 <TextBlock x:Name="DidText" Grid.Column="1" Margin="12,0,0,0"
                            VerticalAlignment="Center"
                            Style="{StaticResource CaptionTextBlockStyle}"
@@ -39,10 +47,14 @@
                     BorderThickness="1" CornerRadius="4">
                 <Grid>
                     <StackPanel x:Name="PeerList"/>
-                    <TextBlock x:Name="EmptyText"
-                               Text="Looking for peers on the local network…"
-                               Margin="12,14" TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel x:Name="EmptyPanel" Orientation="Horizontal"
+                                Spacing="10" Margin="12,14">
+                        <ProgressRing IsActive="True" Width="16" Height="16"
+                                      VerticalAlignment="Center"/>
+                        <TextBlock Text="Looking for peers on the local network…"
+                                   VerticalAlignment="Center" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
                 </Grid>
             </Border>
 
@@ -76,10 +88,10 @@
                 </Button>
                 <Button Click="OnQuit" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left" Padding="12,8"
-                        AutomationProperties.Name="Quit">
+                        AutomationProperties.Name="Quit ClipSync">
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <FontIcon Glyph="&#xE7E8;" FontSize="15"/>
-                        <TextBlock Text="Quit" VerticalAlignment="Center"/>
+                        <TextBlock Text="Quit ClipSync" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
             </StackPanel>

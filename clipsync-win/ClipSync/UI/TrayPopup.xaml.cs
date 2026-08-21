@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using ClipSync.Net;
 using ClipSync.Security;
@@ -22,7 +23,7 @@ public sealed partial class TrayPopup : Window
     public TrayPopup()
     {
         InitializeComponent();
-        DidText.Text = $"me: {Identity.Current.DidHex[..8]} / {Identity.AppVersion}";
+        DidText.Text = $"{Identity.Current.DidHex[..8]} / {Identity.AppVersion}";
 
         var hwnd = WindowNative.GetWindowHandle(this);
         var id = Win32Interop.GetWindowIdFromWindow(hwnd);
@@ -105,7 +106,7 @@ public sealed partial class TrayPopup : Window
     {
         _peerCount = peers.Count;
         PeerList.Children.Clear();
-        EmptyText.Visibility = peers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyPanel.Visibility = peers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         Identity.Log($"Refresh: {peers.Count} peers");
 
         var first = true;
@@ -128,7 +129,7 @@ public sealed partial class TrayPopup : Window
         PauseLabel.Text = paused ? "Resume syncing" : "Pause syncing";
         PauseGlyph.Glyph = paused ? PlayGlyph : PauseGlyphText;
         AutomationProperties.SetName(PauseButton, PauseLabel.Text);
-        TitleText.Text = paused ? "ClipSync — Paused" : "ClipSync";
+        PausedBadge.Visibility = paused ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnTogglePause(object sender, RoutedEventArgs e)
@@ -141,11 +142,9 @@ public sealed partial class TrayPopup : Window
         Refresh(App.Current.Peers.GetAll());
     }
 
-    /// One peer line: a status dot, the peer's name, and then either the
-    /// status in words or the Trust button a pending peer needs.
-    ///
-    /// The three states were three near-identical copies of this; the only
-    /// thing that ever varied is the tuple below.
+    /// One peer line, matching the Mac popover row: a status dot, then the
+    /// name over a "State • fingerprint / version" subtitle, then either the
+    /// Trust button a pending peer needs or the per-peer pause toggle.
     private UIElement BuildPeerRow(Peer peer, bool first)
     {
         // A muted peer reads as paused whatever its connection is doing: the
@@ -153,25 +152,22 @@ public sealed partial class TrayPopup : Window
         // "Online" there would be actively misleading.
         var muted = peer.State != PeerState.Pending && App.Current.Pause.IsMuted(peer.DidHex);
 
-        var (brushKey, fallback, status) = peer.State switch
+        // The dot mirrors the state word: green when data can flow, orange
+        // when a mute is why it can't, yellow while still linking up, grey
+        // when off or not yet trusted.
+        (Brush dotBrush, string status) = peer.State switch
         {
-            _ when muted      => ("SystemFillColorCautionBrush", Colors.Orange, "Paused"),
-            PeerState.Online  => ("SystemFillColorSuccessBrush", Colors.LimeGreen, "Online"),
-            PeerState.Pending => ("SystemFillColorCautionBrush", Colors.Orange, "Waiting to be trusted"),
-            PeerState.Looking => ("TextFillColorSecondaryBrush", Colors.Gray, "Looking…"),
-            _                 => ("TextFillColorDisabledBrush", Colors.Gray, "Offline"),
+            _ when muted      => (Themed("SystemFillColorCautionBrush", Colors.Orange), "Paused"),
+            PeerState.Online  => (Themed("SystemFillColorSuccessBrush", Colors.LimeGreen), "Online"),
+            PeerState.Pending => (new SolidColorBrush(Colors.Gray), "Waiting to be trusted"),
+            PeerState.Looking => (new SolidColorBrush(Colors.Gold), "Looking…"),
+            _                 => (new SolidColorBrush(Windows.UI.Color.FromArgb(0x99, 0x80, 0x80, 0x80)), "Offline"),
         };
 
-        // The version a connected peer reported in its Hello, so a mismatch
-        // between machines is visible from either end. Absent for peers that
-        // aren't connected or predate the field.
-        if (peer.Version is { } pv) status = $"{status} · {pv}";
-
-        // Four columns: dot, name, state, action. The star on the state
-        // column is what pushes the button to the right edge, which is where
-        // a Windows 11 list row puts its control.
-        var row = new Grid { ColumnSpacing = 10, Padding = new Thickness(12, 10, 12, 10) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        // Three columns: dot, the two-line name/subtitle block, action. The
+        // star on the text column pushes the button to the right edge, which
+        // is where a Windows 11 list row puts its control.
+        var row = new Grid { ColumnSpacing = 10, Padding = new Thickness(12, 8, 12, 8) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -183,7 +179,7 @@ public sealed partial class TrayPopup : Window
         var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
         {
             Width = 8, Height = 8,
-            Fill = Themed(brushKey, fallback),
+            Fill = dotBrush,
             VerticalAlignment = VerticalAlignment.Center,
         };
         AutomationProperties.SetAccessibilityView(dot, AccessibilityView.Raw);
@@ -193,11 +189,45 @@ public sealed partial class TrayPopup : Window
         var nameText = new TextBlock
         {
             Text = peer.Name,
-            VerticalAlignment = VerticalAlignment.Center,
+            FontWeight = Microsoft.UI.Text.FontWeights.Medium,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        Grid.SetColumn(nameText, 1);
-        row.Children.Add(nameText);
+
+        // State, then the fingerprint (for eyeball-checking against the
+        // other machine when pairing) and the version it reported, in the
+        // same "<id> / <version>" shape as the header line. That half is
+        // monospaced like the header; a peer that hasn't connected has no
+        // version yet, so its version is dropped.
+        var mono = new FontFamily("Consolas");
+        var sub = new TextBlock
+        {
+            FontSize = 12,
+            Foreground = Themed("TextFillColorSecondaryBrush", Colors.Gray),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        sub.Inlines.Add(new Run { Text = $"{status} • " });
+        sub.Inlines.Add(new Run { Text = peer.DidHex[..8], FontFamily = mono });
+        if (peer.Version is { } pv)
+        {
+            sub.Inlines.Add(new Run { Text = " / ", FontFamily = mono });
+            var verRun = new Run { Text = pv, FontFamily = mono };
+            // A version different from this machine's is the whole reason
+            // peers report it, so make it stand out in amber instead of the
+            // same muted grey as a matching one.
+            if (pv != Identity.AppVersion)
+                verRun.Foreground = Themed("SystemFillColorCautionBrush", Colors.Orange);
+            sub.Inlines.Add(verRun);
+        }
+
+        var textStack = new StackPanel
+        {
+            Spacing = 1,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        textStack.Children.Add(nameText);
+        textStack.Children.Add(sub);
+        Grid.SetColumn(textStack, 1);
+        row.Children.Add(textStack);
 
         if (peer.State == PeerState.Pending)
         {
@@ -218,22 +248,13 @@ public sealed partial class TrayPopup : Window
                 App.Current.TrustStore.Add(did, name);
                 App.Current.Discovery.ConnectToPeer(did);
             };
-            Grid.SetColumn(btn, 3);
+            Grid.SetColumn(btn, 2);
             row.Children.Add(btn);
         }
         else
         {
-            var stateText = new TextBlock
-            {
-                Text = status, FontSize = 12,
-                Foreground = Themed("TextFillColorSecondaryBrush", Colors.Gray),
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            Grid.SetColumn(stateText, 2);
-            row.Children.Add(stateText);
-
             var mute = BuildMuteButton(peer, muted);
-            Grid.SetColumn(mute, 3);
+            Grid.SetColumn(mute, 2);
             row.Children.Add(mute);
         }
 
@@ -379,7 +400,7 @@ public sealed partial class TrayPopup : Window
 
         // header + peers card + 3 buttons + padding, as it was before.
         return ((int)(MinWidthDip * scale),
-                (int)((24 + 18 + 1 + (rows * 40) + 1 + 36 + 36 + 36 + 8 + 60) * scale));
+                (int)((24 + 18 + 1 + (rows * 52) + 1 + 36 + 36 + 36 + 8 + 60) * scale));
     }
 
     /// Where this popup was last drawn, in physical pixels, so the settings
