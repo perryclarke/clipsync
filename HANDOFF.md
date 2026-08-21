@@ -111,24 +111,37 @@ been compiled** — there is no Swift toolchain on the Windows box. Design:
 Nothing outside `Net/` was touched: watcher, writer, registry, pause,
 menu are as before. `PROTOCOL.md` §6.1/6.2/6.3–6.5/10 and README updated.
 
-### To do on the Mac
+### Done on the Mac (2026-08-18)
 
-1. `swift build` — expect possible small Swift fixes; the logic mirrors the
-   C# byte-for-byte, so if something disagrees, the C# in
-   `clipsync-win/ClipSync.Core/Net/` is the reference.
-2. `swift test` — planner + assembler must pass; then
-   `CLIPSYNC_TLS_LOOPBACK=1 swift test --filter StreamLoopback` for the
-   5 MB item through two real `PeerConnection`s over mTLS.
-3. Rebuild the app (`build-dmg.sh`) and run it against the Windows build on
-   this branch. Windows is already running the new code, so until the Mac
-   is rebuilt Windows logs `dropping <mime> (x MB): peer lacks stream
-   capability` for >64 KiB formats — that line disappearing is the first
-   sign both sides speak `stream`.
-4. End-to-end: Retina screenshot Mac → Windows (TIFF + PNG both stream;
-   Windows shows the PNG); >64 KiB text Windows → Mac; something over
-   100 MB to see the drop line. Windows log: `--debug`,
-   `%LOCALAPPDATA%\ClipSync\debug.log`; Mac: `log stream --predicate
-   'process == "ClipSync"'`.
+The Mac side was compiled, tested, and run on `large-item-streaming`.
+
+1. `swift build` — **compiled clean, no Swift fixes were needed**; the
+   C#-mirrored logic built as written.
+2. `swift test` — **75 pass, 0 failures** (planner + assembler in the
+   normal suite). `CLIPSYNC_TLS_LOOPBACK=1 swift test --filter
+   StreamLoopback` — **passes**: a 5 MB item through two real
+   `PeerConnection`s over mTLS, materialised back to inline
+   (`streaming 5.0 MB as stream 1` → `streamed item complete (2 formats)`).
+3. Rebuilt the app, signed with the Apple Development cert, ran it against
+   the LAN. It connected to Windows peer `PCLARKE-WIN11-L` over mTLS with a
+   clean Hello. **That box is still on 0.6.x (no `stream` cap)**, so a
+   copied screenshot logged the expected degradation —
+   `dropping image/png (0.4 MB): peer lacks stream capability` — confirming
+   the capability gate against a real non-stream peer.
+
+Both branches of the send decision are therefore verified: streaming (via
+the loopback test) and safe drop-to-a-0.6.x-peer (live).
+
+### Still to verify (needs a Windows box on this branch)
+
+- End-to-end Mac ↔ Win streaming: the LAN Windows peer is 0.6.x, so the
+  live `stream`-to-`stream` path could not be exercised. Update Windows to
+  this branch, then: Retina screenshot Mac → Windows (Windows shows the
+  PNG); >64 KiB text Windows → Mac; something over 100 MB for the drop
+  line. The `peer lacks stream capability` line disappearing is the first
+  sign both sides speak `stream`. Windows log: `--debug`,
+  `%LOCALAPPDATA%\ClipSync\debug.log`; Mac: run the binary directly and
+  read stderr (`open`-launched, NSLog does not surface via `log stream`).
 
 ### Notes / gotchas
 
