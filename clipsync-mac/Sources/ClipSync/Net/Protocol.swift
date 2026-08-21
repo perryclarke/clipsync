@@ -73,13 +73,14 @@ enum Codec {
         return out
     }
 
-    static func encodeHello(did: Data, name: String, caps: [String]) -> Data {
+    static func encodeHello(did: Data, name: String, caps: [String], ver: String) -> Data {
         encode([
             "t": .unsignedInt(UInt64(MessageType.hello.rawValue)),
             "v": .unsignedInt(1),
             "did": .byteString(Array(did)),
             "name": .utf8String(name),
-            "caps": .array(caps.map { .utf8String($0) })
+            "caps": .array(caps.map { .utf8String($0) }),
+            "ver": .utf8String(ver)
         ])
     }
 
@@ -150,6 +151,12 @@ enum Codec {
     }
 
     /// Capabilities from a Hello; empty if absent.
+    /// App version from a Hello; nil if absent (a pre-0.7.1 peer).
+    static func decodeHelloVersion(_ cbor: CBOR) -> String? {
+        guard case let .map(m) = cbor, case let .utf8String(v)? = m["ver"] else { return nil }
+        return v
+    }
+
     static func decodeHelloCaps(_ cbor: CBOR) -> Set<String> {
         guard case let .map(m) = cbor, case let .array(arr)? = m["caps"] else { return [] }
         var caps = Set<String>()

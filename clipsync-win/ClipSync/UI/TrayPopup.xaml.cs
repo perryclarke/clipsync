@@ -22,8 +22,7 @@ public sealed partial class TrayPopup : Window
     public TrayPopup()
     {
         InitializeComponent();
-        var v = typeof(TrayPopup).Assembly.GetName().Version;
-        DidText.Text = $"me: {Identity.Current.DidHex[..8]} / {v?.Major}.{v?.Minor}.{v?.Build}";
+        DidText.Text = $"me: {Identity.Current.DidHex[..8]} / {Identity.AppVersion}";
 
         var hwnd = WindowNative.GetWindowHandle(this);
         var id = Win32Interop.GetWindowIdFromWindow(hwnd);
@@ -162,6 +161,11 @@ public sealed partial class TrayPopup : Window
             PeerState.Looking => ("TextFillColorSecondaryBrush", Colors.Gray, "Looking…"),
             _                 => ("TextFillColorDisabledBrush", Colors.Gray, "Offline"),
         };
+
+        // The version a connected peer reported in its Hello, so a mismatch
+        // between machines is visible from either end. Absent for peers that
+        // aren't connected or predate the field.
+        if (peer.Version is { } pv) status = $"{status} · {pv}";
 
         // Four columns: dot, name, state, action. The star on the state
         // column is what pushes the button to the right edge, which is where

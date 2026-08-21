@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace ClipSync.Net;
 
-public sealed record Peer(string DidHex, string Name, PeerState State);
+public sealed record Peer(string DidHex, string Name, PeerState State, string? Version = null);
 /// Looking: a trusted peer we have seen advertised but not yet connected
 /// to, and have no evidence is unreachable. It is the honest label between
 /// discovery and the first Hello — calling that window "Offline" reported a
@@ -134,7 +134,7 @@ public sealed class PeerRegistry
         foreach (var (hex, pc) in _connections)
         {
             Security.Identity.Log($"  connected: {hex} name={pc.PeerName}");
-            list.Add(new Peer(hex, pc.PeerName ?? "Peer", PeerState.Online));
+            list.Add(new Peer(hex, pc.PeerName ?? "Peer", PeerState.Online, pc.PeerVersion));
             connected.Add(hex);
         }
         foreach (var (hex, peer) in _discovered)
@@ -177,7 +177,7 @@ public sealed class PeerRegistry
         var connected = new HashSet<string>();
         foreach (var (hex, pc) in _connections)
         {
-            list.Add(new Peer(hex, pc.PeerName ?? "Peer", PeerState.Online));
+            list.Add(new Peer(hex, pc.PeerName ?? "Peer", PeerState.Online, pc.PeerVersion));
             connected.Add(hex);
         }
         foreach (var (hex, peer) in _discovered)

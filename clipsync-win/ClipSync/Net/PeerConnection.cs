@@ -26,6 +26,9 @@ public sealed class PeerConnection
 
     public byte[]? PeerDid { get; private set; }
     public string? PeerName { get; private set; }
+    /// App version the peer reported in its Hello; null from a peer too
+    /// old to send one.
+    public string? PeerVersion { get; private set; }
     /// Capabilities the peer advertised in its Hello. "stream" means it
     /// reassembles FileChunk/FileEnd; without it, formats over the inline
     /// limit are dropped rather than streamed (StreamPlanner).
@@ -210,7 +213,8 @@ public sealed class PeerConnection
 
     private async Task SendHelloAsync()
     {
-        await SendAsync(Codec.EncodeHello(_identity.Did, Environment.MachineName, LocalCaps));
+        await SendAsync(Codec.EncodeHello(_identity.Did, Environment.MachineName, LocalCaps,
+            Identity.AppVersion));
     }
 
     /// App-level keepalive: detects dead links (sleep, AP roam) that TCP
@@ -279,7 +283,8 @@ public sealed class PeerConnection
                 PeerDid = _verifiedDid;
                 PeerName = body.ContainsKey("name") ? body["name"].AsString() : null;
                 _peerCaps = Codec.DecodeHelloCaps(body);
-                Identity.Log($"Hello from: name={PeerName}, did={Convert.ToHexString(PeerDid).ToLowerInvariant()}");
+                PeerVersion = Codec.DecodeHelloVersion(body);
+                Identity.Log($"Hello from: name={PeerName}, ver={PeerVersion ?? "?"}, did={Convert.ToHexString(PeerDid).ToLowerInvariant()}");
                 OnReady?.Invoke();
                 break;
             case MessageType.ClipboardItem:

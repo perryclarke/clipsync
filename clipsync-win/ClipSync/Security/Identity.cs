@@ -15,6 +15,11 @@ public sealed class Identity
 {
     public static Identity Current { get; private set; } = null!;
 
+    /// The app's version as "major.minor.patch", from the assembly.
+    public static readonly string AppVersion =
+        typeof(Identity).Assembly.GetName().Version is { } v
+            ? $"{v.Major}.{v.Minor}.{v.Build}" : "0.0.0";
+
     public byte[] Did { get; }              // SHA-256 of EC public key x963 bytes
     public string DidHex => Convert.ToHexString(Did).ToLowerInvariant();
     public X509Certificate2 TlsCertificate { get; }

@@ -97,9 +97,15 @@ the connection with `ProtocolError` on mismatch.
   v: 1,                // protocol version
   did: bstr (32),      // raw SHA-256, not hex
   name: tstr,
-  caps: [tstr, ...]
+  caps: [tstr, ...],
+  ver: tstr            // app version, e.g. "0.7.1" (optional, ≥ 0.7.1)
 }
 ```
+
+`ver` is the sender's app version, informational only: it is shown in
+the peer UI so a version mismatch between machines is visible from
+either end. Feature gating stays on `caps`, never on `ver`. Receivers
+MUST accept a Hello without it (any pre-0.7.1 peer).
 
 Capabilities are free-form strings. Defined so far: `text`, `image`,
 `files`, `rich`, and `stream` — the peer reassembles `FileChunk` /

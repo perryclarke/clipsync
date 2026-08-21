@@ -43,6 +43,21 @@ if (-not (Get-Command $wix -ErrorAction SilentlyContinue)) {
     }
 }
 
+# The wxs uses util:CloseApplication, which needs the Util extension.
+# Install it (matched to the wix version, so the schemas agree) if this
+# machine doesn't have it yet.
+$utilExt = 'WixToolset.Util.wixext'
+$exts = & $wix extension list --global
+if (-not ($exts -match [regex]::Escape($utilExt))) {
+    $wixVer = ((& $wix --version) -split '\+')[0]
+    Write-Host "Installing WiX extension $utilExt/$wixVer..."
+    & $wix extension add --global "$utilExt/$wixVer"
+    if ($LASTEXITCODE -ne 0) {
+        & $wix extension add --global $utilExt
+        if ($LASTEXITCODE -ne 0) { throw "wix extension add $utilExt failed (exit $LASTEXITCODE)." }
+    }
+}
+
 # Resolve signtool and ensure a signing certificate exists (unless -SkipSign).
 $certThumb = $null
 $signtool  = $null
@@ -116,6 +131,7 @@ $wixArch = if ($Arch -eq 'arm64') { 'arm64' } else { 'x64' }
 Write-Host "Building MSI with WiX..."
 & $wix build $wxs `
     -arch $wixArch `
+    -ext $utilExt `
     -bindpath "publish=$publishDir" `
     -bindpath "icon=$iconDir" `
     -o $msiOut

@@ -40,7 +40,7 @@ public static class Codec
         return outBuf;
     }
 
-    public static byte[] EncodeHello(byte[] did, string name, string[] caps)
+    public static byte[] EncodeHello(byte[] did, string name, string[] caps, string ver)
     {
         var o = CBORObject.NewMap();
         o.Add("t", (int)MessageType.Hello);
@@ -50,6 +50,7 @@ public static class Codec
         var arr = CBORObject.NewArray();
         foreach (var c in caps) arr.Add(c);
         o.Add("caps", arr);
+        o.Add("ver", ver);
         return Frame(o);
     }
 
@@ -120,6 +121,10 @@ public static class Codec
         if (TypeOf(body) != MessageType.FileEnd) return null;
         return (body["stream_id"].ToObject<ulong>(), body["total_size"].ToObject<ulong>(), body["sha256"].GetByteString());
     }
+
+    /// App version from a Hello; null if absent (a pre-0.7.1 peer).
+    public static string? DecodeHelloVersion(CBORObject body) =>
+        body.ContainsKey("ver") ? body["ver"].AsString() : null;
 
     /// Capabilities from a Hello; empty if absent.
     public static HashSet<string> DecodeHelloCaps(CBORObject body)

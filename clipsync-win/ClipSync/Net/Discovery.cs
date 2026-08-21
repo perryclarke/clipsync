@@ -177,7 +177,8 @@ public sealed class Discovery
             foreach (System.Collections.DictionaryEntry entry in senders)
             {
                 var addr = (IPAddress)entry.Key;
-                var sock = ((UdpClient)entry.Value).Client;
+                if (entry.Value is not UdpClient udp) continue;
+                var sock = udp.Client;
                 try
                 {
                     var (v4idx, v6idx) = InterfaceIndexFor(addr);

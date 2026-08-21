@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
   <Package
       Name="ClipSync"
@@ -18,6 +19,29 @@
          ClipSync.dll), leaving a broken install on upgrade. -->
     <MajorUpgrade Schedule="afterInstallInitialize"
                   DowngradeErrorMessage="A newer version of ClipSync is already installed." />
+
+    <!-- Close a running ClipSync before files are replaced, so installing
+         over a running app never hits the files-in-use / restart dialog.
+         Ask politely with WM_CLOSE first; a tray app with no open window
+         may ignore that, so anything still alive is then terminated. -->
+    <util:CloseApplication Id="CloseRunningClipSync"
+                           Target="ClipSync.exe"
+                           CloseMessage="yes"
+                           TerminateProcess="0"
+                           RebootPrompt="no" />
+
+    <!-- Start the freshly installed build once the install completes (the
+         Run key only fires at login). Immediate action after
+         InstallFinalize, so it runs as the invoking user, not the
+         installer service. Skipped on uninstall. -->
+    <CustomAction Id="LaunchClipSync"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]ClipSync.exe&quot;"
+                  Return="asyncNoWait"
+                  Execute="immediate" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchClipSync" After="InstallFinalize" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
 
     <MediaTemplate EmbedCab="yes" />
 

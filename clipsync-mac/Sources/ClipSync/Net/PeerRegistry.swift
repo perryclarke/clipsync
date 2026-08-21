@@ -6,6 +6,9 @@ struct Peer: Identifiable, Equatable {
     let didHex: String
     let name: String
     let state: State
+    /// App version a connected peer reported in its Hello; nil for peers
+    /// that aren't connected or predate the field.
+    var version: String? = nil
     /// First 8 hex chars of the SPKI fingerprint — shown in the TOFU
     /// pair UI so the user can eyeball-verify it matches on both sides.
     var fingerprintShort: String { String(didHex.prefix(8)) }
@@ -16,7 +19,7 @@ struct Peer: Identifiable, Equatable {
     enum State: Equatable { case online, pending, looking, offline }
 
     func with(state: State) -> Peer {
-        Peer(didHex: didHex, name: name, state: state)
+        Peer(didHex: didHex, name: name, state: state, version: version)
     }
 }
 
@@ -172,7 +175,8 @@ final class PeerRegistry {
         var list: [Peer] = []
         var shown = Set<String>()
         for (hex, pc) in connections {
-            list.append(Peer(didHex: hex, name: pc.peerName ?? "Peer", state: .online))
+            list.append(Peer(didHex: hex, name: pc.peerName ?? "Peer", state: .online,
+                             version: pc.peerVersion))
             shown.insert(hex)
         }
         for (hex, entry) in pending where !shown.contains(hex) {

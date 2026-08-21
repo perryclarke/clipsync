@@ -25,6 +25,9 @@ final class PeerConnection {
     /// registry and SyncPause key off this value.
     private(set) var peerDid: Data?
     private(set) var peerName: String?
+    /// App version the peer reported in its Hello; nil from a peer too
+    /// old to send one.
+    private(set) var peerVersion: String?
     /// Capabilities the peer advertised in its Hello. "stream" means it
     /// reassembles FileChunk/FileEnd; without it, formats over the inline
     /// limit are dropped rather than streamed (StreamPlanner).
@@ -154,7 +157,7 @@ final class PeerConnection {
 
     private func sendHello() {
         let f = Codec.encodeHello(did: identity.did, name: Host.current().localizedName ?? "Mac",
-                                  caps: Self.localCaps)
+                                  caps: Self.localCaps, ver: AppVersion.current)
         send(f)
     }
 
@@ -227,7 +230,8 @@ final class PeerConnection {
             if case let .map(m) = cbor,
                case let .utf8String(n)? = m["name"] { self.peerName = n }
             peerCaps = Codec.decodeHelloCaps(cbor)
-            onLog?("hello from \(peerName ?? "?") \(peerDid?.prefix(4).map { String(format: "%02x", $0) }.joined() ?? "?")")
+            peerVersion = Codec.decodeHelloVersion(cbor)
+            onLog?("hello from \(peerName ?? "?") \(peerVersion ?? "?") \(peerDid?.prefix(4).map { String(format: "%02x", $0) }.joined() ?? "?")")
             onReady?()
         case .clipboardItem:
             guard let item = Codec.decodeClipboardItem(cbor) else { return }

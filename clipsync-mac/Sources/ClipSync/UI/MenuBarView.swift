@@ -39,7 +39,11 @@ struct MenuBarView: View {
     @ViewBuilder
     private func peerMenu(_ peer: Peer) -> some View {
         let paused = coordinator.isPeerPaused(peer.didHex)
-        Menu("\(peer.name) — \(stateLabel(peer, paused: paused))") {
+        // A connected peer's row carries the version it reported in its
+        // Hello, so a mismatch between machines is visible from either end.
+        let status = peer.version.map { "\(stateLabel(peer, paused: paused)) · \($0)" }
+            ?? stateLabel(peer, paused: paused)
+        Menu("\(peer.name) — \(status)") {
             // Shown so the fingerprint can be eyeball-checked against the
             // other machine when pairing.
             Text("Fingerprint: \(peer.fingerprintShort)")
@@ -72,8 +76,5 @@ struct MenuBarView: View {
         String(Identity.shared.didHex.prefix(8))
     }
 
-    private var myVersion: String {
-        // Absent when run straight from `swift run` (no app bundle).
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
-    }
+    private var myVersion: String { AppVersion.current }
 }
