@@ -154,3 +154,45 @@ the loopback test) and safe drop-to-a-0.6.x-peer (live).
 - Files still travel as paths only — out of scope, recorded in README.
 - Bump to 0.7.0 on both platforms when this ships; the `stream` cap is
   the compatibility signal, not the version.
+
+## Handoff 2026-08-21 — 0.8.0 quality-of-life features (for the Mac)
+
+Windows implemented four features for 0.8.0 (both platforms already bumped
+to 0.8.0 / build 10 in this commit). None of them touch the wire protocol;
+the Mac needs its own equivalents of the first three:
+
+1. **Hidden devices.** An untrusted (pending) peer row gets a small round
+   ✕ button beside Trust; clicking it hides that device from the peer
+   list. Hidden devices live in the settings file (`hiddenPeers`, a list
+   of `{did, name}` — see `clipsync-win/ClipSync.Core/Settings/
+   AppSettings.cs`, the reference implementation, and its tests) and can
+   be unhidden from a "Hidden devices" list in Settings. Hiding is a
+   display preference only: it does not touch trust, discovery or
+   connections; the popup just filters those DIDs out. Purpose: an office
+   subnet where dozens of strangers' machines would otherwise fill the
+   list. Please match the JSON shape exactly — the settings schema is
+   shared.
+
+2. **Start over.** A Settings card ("Start over", confirmation dialog)
+   that clears the trust store and every preference (excluded apps,
+   per-peer pauses, hidden devices), then relaunches the app — returning
+   it to first-run state. The device identity is deliberately kept, and
+   peers are not told; both sides re-trust to reconnect. On Windows this
+   is `TrustStore.Clear()` + `AppSettings.ResetAll()` + restart.
+
+3. **Start at login.** Windows: a "Start ClipSync when you sign in"
+   toggle over the HKCU Run key the MSI seeds. Mac equivalent:
+   `SMAppService.mainApp` register/unregister behind a "Open at login"
+   toggle in Settings.
+
+4. *(Windows-only, no Mac work)* the tray popup already filters hidden
+   devices and shows the ✕ on pending rows.
+
+Gotchas:
+- `AppSettings` hidden entries normalise DIDs to lowercase and fall back
+  to the first 8 hex chars when a name is blank; hide is idempotent and
+  keeps the first name. Tests in `ClipSync.Tests/AppSettingsTests.cs`
+  cover round-trip, idempotency, blank names and ResetAll.
+- Windows named things: "Start ClipSync when you sign in", "Hidden
+  devices", "Start over" — keep the Mac wording parallel ("Open ClipSync
+  at login" is the natural Mac phrasing for the first).

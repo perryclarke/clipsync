@@ -131,4 +131,65 @@ public class AppSettingsTests : IDisposable
         var seenAtRuntime = new AppIdentity(AppKind.Exe, @"C:\new\discord.exe", "Discord");
         Assert.True(s.IsExcluded(seenAtRuntime));
     }
+
+    private const string Did = "b6bf89d9aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    [Fact]
+    public void HiddenPeerSurvivesRoundTripAndMatchesCaseInsensitively()
+    {
+        AppSettings.Load(_path).Hide(Did.ToUpperInvariant(), "Stranger");
+
+        var reloaded = AppSettings.Load(_path);
+        Assert.True(reloaded.IsHidden(Did));
+        var entry = Assert.Single(reloaded.Hidden);
+        Assert.Equal(Did, entry.DidHex);
+        Assert.Equal("Stranger", entry.Name);
+    }
+
+    [Fact]
+    public void HideIsIdempotentAndKeepsTheFirstName()
+    {
+        var s = AppSettings.Load(_path);
+        s.Hide(Did, "First");
+        s.Hide(Did, "Second");
+        Assert.Equal("First", Assert.Single(s.Hidden).Name);
+    }
+
+    [Fact]
+    public void UnhideRemovesTheEntryAndPersists()
+    {
+        var s = AppSettings.Load(_path);
+        s.Hide(Did, "Stranger");
+        s.Unhide(Did);
+
+        Assert.False(s.IsHidden(Did));
+        Assert.Empty(AppSettings.Load(_path).Hidden);
+    }
+
+    [Fact]
+    public void HidingWithABlankNameFallsBackToTheFingerprint()
+    {
+        var s = AppSettings.Load(_path);
+        s.Hide(Did, "  ");
+        Assert.Equal(Did[..8], Assert.Single(s.Hidden).Name);
+    }
+
+    [Fact]
+    public void ResetAllEmptiesEverythingAndPersists()
+    {
+        var s = AppSettings.Load(_path);
+        s.Add(new AppIdentity(AppKind.Exe, "notepad.exe", "Notepad"));
+        s.SetPeerPaused(Did, true);
+        s.Hide(Did, "Stranger");
+
+        s.ResetAll();
+
+        Assert.Empty(s.Excluded);
+        Assert.Empty(s.PausedPeers);
+        Assert.Empty(s.Hidden);
+        var reloaded = AppSettings.Load(_path);
+        Assert.Empty(reloaded.Excluded);
+        Assert.Empty(reloaded.PausedPeers);
+        Assert.Empty(reloaded.Hidden);
+    }
 }

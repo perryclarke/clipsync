@@ -44,22 +44,44 @@
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
         </Grid>
 
-        <!-- Three fixed bands and one scrolling one. Only the list of apps
-             scrolls; the group header and the add row stay put. A page-level
-             ScrollViewer here instead meant that a third excluded app pushed
-             the add row off the bottom of the window, so the way to add a
-             fourth was to scroll looking for the button. -->
-        <Grid Grid.Row="1" Padding="20,12,20,16" VerticalAlignment="Top">
+        <!-- The page scrolls as a whole now that it holds several sections,
+             the way a Windows Settings page does. The excluded-apps list
+             still caps its own height (see CapListHeight) so its add row
+             stays within reach rather than a screenful below the list. -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <Grid Padding="20,12,20,16" VerticalAlignment="Top">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Text="Privacy"
+            <TextBlock Grid.Row="0" Text="General"
                        Style="{StaticResource BodyStrongTextBlockStyle}"
                        Margin="0,0,0,8"
+                       AutomationProperties.HeadingLevel="Level1"/>
+
+            <controls:SettingsCard Grid.Row="1"
+                    Header="Start ClipSync when you sign in"
+                    Description="Opens in the notification area each time you sign in to Windows.">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE7E8;"/>
+                </controls:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="StartupToggle" Toggled="OnStartupToggled"
+                              OnContent="" OffContent=""
+                              AutomationProperties.Name="Start ClipSync when you sign in"/>
+            </controls:SettingsCard>
+
+            <TextBlock Grid.Row="2" Text="Privacy"
+                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                       Margin="0,16,0,8"
                        AutomationProperties.HeadingLevel="Level1"/>
 
             <!-- The header and the list are one closed group; the add row is
@@ -68,7 +90,7 @@
                  each row has a top edge, and the list itself closes the
                  bottom. Drawing them from both sides instead gives a two
                  pixel line everywhere two borders meet. -->
-            <controls:SettingsCard Grid.Row="1" x:Name="GroupHeader"
+            <controls:SettingsCard Grid.Row="3" x:Name="GroupHeader"
                     Header="Excluded apps"
                     Description="Items copied while these apps are in the foreground are not sent to your other devices."
                     CornerRadius="4,4,0,0"
@@ -78,7 +100,7 @@
                 </controls:SettingsCard.HeaderIcon>
             </controls:SettingsCard>
 
-            <Grid Grid.Row="2">
+            <Grid Grid.Row="4">
                 <!-- MaxHeight is set in code to two and a half rows, measured
                      from a realised row rather than assumed, so the half row
                      showing at the bottom is what tells you there is more
@@ -149,7 +171,7 @@
                  semantics, so this draws the same card by hand and centres
                  both. Metrics are matched to the rows deliberately: 68 high,
                  16 in from the edge. -->
-            <Border Grid.Row="3" Margin="0,8,0,0" MinHeight="68" Padding="16,0"
+            <Border Grid.Row="5" Margin="0,8,0,0" MinHeight="68" Padding="16,0"
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="4">
@@ -189,7 +211,40 @@
                 </DropDownButton>
               </Grid>
             </Border>
+
+            <TextBlock Grid.Row="6" Text="Devices"
+                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                       Margin="0,16,0,8"
+                       AutomationProperties.HeadingLevel="Level1"/>
+
+            <!-- Untrusted machines dismissed from the peer list with the ⊗
+                 on their row. On an office subnet full of other people's
+                 computers this is the difference between a peer list and a
+                 directory of the whole floor. Rows are built in code. -->
+            <controls:SettingsExpander Grid.Row="7" x:Name="HiddenExpander"
+                    Header="Hidden devices"
+                    Description="Devices you've hidden from the device list.">
+                <controls:SettingsExpander.HeaderIcon>
+                    <FontIcon Glyph="&#xED1A;"/>
+                </controls:SettingsExpander.HeaderIcon>
+            </controls:SettingsExpander>
+
+            <TextBlock Grid.Row="8" Text="Reset"
+                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                       Margin="0,16,0,8"
+                       AutomationProperties.HeadingLevel="Level1"/>
+
+            <controls:SettingsCard Grid.Row="9"
+                    Header="Start over"
+                    Description="Forget trusted devices, hidden devices, excluded apps and paused peers, then restart ClipSync as it was when first installed.">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE777;"/>
+                </controls:SettingsCard.HeaderIcon>
+                <Button Content="Start over…" Click="OnReset"
+                        AutomationProperties.Name="Start over: forget all settings and trusted devices"/>
+            </controls:SettingsCard>
         </Grid>
+        </ScrollViewer>
 
         <InfoBar Grid.Row="2" x:Name="CaptureStatus"
                  Margin="20,0,20,16" IsOpen="False" IsClosable="True"/>

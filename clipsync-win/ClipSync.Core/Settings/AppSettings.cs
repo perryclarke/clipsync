@@ -7,6 +7,11 @@ using System.Text.Json.Serialization;
 
 namespace ClipSync.Settings;
 
+/// A discovered-but-untrusted device the user chose not to see in the
+/// peer list. The name is whatever it advertised when hidden, kept so
+/// the settings list can say more than a hash.
+public sealed record HiddenPeer(string DidHex, string Name);
+
 /// User preferences, stored as plain JSON in %LOCALAPPDATA%\ClipSync.
 /// Unlike the trust store this is not secret, and being hand-editable is
 /// a feature. A corrupt file degrades to defaults rather than throwing,
@@ -18,13 +23,16 @@ public sealed class AppSettings
     private readonly string _path;
     private readonly List<AppIdentity> _excluded;
     private readonly List<string> _pausedPeers;
+    private readonly List<HiddenPeer> _hidden;
     private readonly object _lock = new();
 
-    private AppSettings(string path, List<AppIdentity> excluded, List<string> pausedPeers)
+    private AppSettings(string path, List<AppIdentity> excluded, List<string> pausedPeers,
+                        List<HiddenPeer> hidden)
     {
         _path = path;
         _excluded = excluded;
         _pausedPeers = pausedPeers;
+        _hidden = hidden;
     }
 
     public static string DefaultPath => Path.Combine(
@@ -37,6 +45,7 @@ public sealed class AppSettings
     {
         var list = new List<AppIdentity>();
         var paused = new List<string>();
+        var hidden = new List<HiddenPeer>();
         try
         {
             if (File.Exists(path))
@@ -50,6 +59,11 @@ public sealed class AppSettings
                 {
                     if (Normalise(did) is { } key && !paused.Contains(key)) paused.Add(key);
                 }
+                foreach (var h in model?.HiddenPeers ?? new List<FileModel.HiddenEntry>())
+                {
+                    if (Normalise(h.Did) is { } key && hidden.TrueForAll(x => x.DidHex != key))
+                        hidden.Add(new HiddenPeer(key, h.Name ?? key[..Math.Min(8, key.Length)]));
+                }
             }
         }
         catch (Exception ex)
@@ -58,8 +72,9 @@ public sealed class AppSettings
             Security.Log.Write($"AppSettings: could not read {path}: {ex.GetType().Name}; using defaults");
             list.Clear();
             paused.Clear();
+            hidden.Clear();
         }
-        return new AppSettings(path, list, paused);
+        return new AppSettings(path, list, paused, hidden);
     }
 
     public IReadOnlyList<AppIdentity> Excluded
@@ -124,6 +139,58 @@ public sealed class AppSettings
         }
     }
 
+    /// Untrusted devices the user has hidden from the peer list, so an
+    /// office full of strangers' machines doesn't fill the popup. Hiding is
+    /// a display preference only: it does not touch trust, and a hidden
+    /// device that is later trusted from the other side still has to be
+    /// unhidden and trusted here to connect.
+    public IReadOnlyList<HiddenPeer> Hidden
+    {
+        get { lock (_lock) return _hidden.ToList(); }
+    }
+
+    public bool IsHidden(string didHex)
+    {
+        if (Normalise(didHex) is not { } key) return false;
+        lock (_lock) return _hidden.Exists(h => h.DidHex == key);
+    }
+
+    public void Hide(string didHex, string name)
+    {
+        if (Normalise(didHex) is not { } key) return;
+        lock (_lock)
+        {
+            if (_hidden.Exists(h => h.DidHex == key)) return;
+            _hidden.Add(new HiddenPeer(key, string.IsNullOrWhiteSpace(name)
+                ? key[..Math.Min(8, key.Length)] : name));
+            Persist();
+        }
+    }
+
+    public void Unhide(string didHex)
+    {
+        if (Normalise(didHex) is not { } key) return;
+        lock (_lock)
+        {
+            if (_hidden.RemoveAll(h => h.DidHex == key) == 0) return;
+            Persist();
+        }
+    }
+
+    /// Forget every preference at once — excluded apps, per-peer pauses and
+    /// hidden devices — returning the file to its first-run state. Trust
+    /// lives in TrustStore and is the caller's to clear alongside this.
+    public void ResetAll()
+    {
+        lock (_lock)
+        {
+            _excluded.Clear();
+            _pausedPeers.Clear();
+            _hidden.Clear();
+            Persist();
+        }
+    }
+
     /// DIDs are compared lowercase; blank ones are not a peer.
     private static string? Normalise(string? didHex) =>
         string.IsNullOrWhiteSpace(didHex) ? null : didHex.Trim().ToLowerInvariant();
@@ -144,6 +211,11 @@ public sealed class AppSettings
                     Path = e.Path,
                 }).ToList(),
                 PausedPeers = _pausedPeers.ToList(),
+                HiddenPeers = _hidden.Select(h => new FileModel.HiddenEntry
+                {
+                    Did = h.DidHex,
+                    Name = h.Name,
+                }).ToList(),
             };
 
             var dir = System.IO.Path.GetDirectoryName(_path);
@@ -191,6 +263,7 @@ public sealed class AppSettings
         public int Version { get; set; } = CurrentVersion;
         public List<Entry> ExcludedApps { get; set; } = new();
         public List<string> PausedPeers { get; set; } = new();
+        public List<HiddenEntry> HiddenPeers { get; set; } = new();
 
         public sealed class Entry
         {
@@ -198,6 +271,12 @@ public sealed class AppSettings
             public string? Key { get; set; }
             public string? Name { get; set; }
             public string? Path { get; set; }
+        }
+
+        public sealed class HiddenEntry
+        {
+            public string? Did { get; set; }
+            public string? Name { get; set; }
         }
     }
 }

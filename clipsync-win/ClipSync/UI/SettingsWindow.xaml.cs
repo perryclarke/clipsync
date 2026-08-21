@@ -8,6 +8,7 @@ using Microsoft.UI;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -75,7 +76,7 @@ public sealed partial class SettingsWindow : Window
     /// small-screen layout. The height fits the group header, two app rows
     /// and the add row before the page starts scrolling.
     private const int WidthDip = 560;
-    private const int HeightDip = 426;
+    private const int HeightDip = 560;
 
     /// Breathing room between this window and the tray popup it sits beside.
     private const int GapDip = 8;
@@ -107,6 +108,90 @@ public sealed partial class SettingsWindow : Window
         // thread and populates the list once that completes. It handles its
         // own failures, so discarding the Task loses nothing.
         _ = RefreshList();
+
+        // Reflect, don't rewrite: the guard keeps this initial assignment
+        // from re-writing the Run value (OnStartupToggled would otherwise
+        // replace the installer's path with this process's).
+        _startupInit = true;
+        StartupToggle.IsOn = StartupLauncher.IsEnabled();
+        _startupInit = false;
+
+        RefreshHidden();
+    }
+
+    private bool _startupInit;
+
+    private void OnStartupToggled(object sender, RoutedEventArgs e)
+    {
+        if (_startupInit) return;
+        StartupLauncher.SetEnabled(StartupToggle.IsOn);
+    }
+
+    /// Called from the tray popup when a device is hidden there, so an open
+    /// settings window's list doesn't go stale. Both run on the UI thread.
+    public static void RefreshHiddenIfOpen() => _instance?.RefreshHidden();
+
+    private void RefreshHidden()
+    {
+        var hidden = App.Current.Settings.Hidden;
+        HiddenExpander.Items.Clear();
+        HiddenExpander.IsEnabled = hidden.Count > 0;
+        if (hidden.Count == 0) HiddenExpander.IsExpanded = false;
+        HiddenExpander.Description = hidden.Count == 0
+            ? "Devices you hide from the device list appear here."
+            : $"{hidden.Count} device{(hidden.Count == 1 ? "" : "s")} hidden from the device list.";
+
+        foreach (var h in hidden)
+        {
+            var did = h.DidHex;
+            var name = h.Name;
+            var unhide = new Button { Content = "Unhide" };
+            AutomationProperties.SetName(unhide, $"Unhide {name}");
+            unhide.Click += (_, _) =>
+            {
+                App.Current.Settings.Unhide(did);
+                Security.Identity.Log($"Settings: unhid {name} ({did[..8]})");
+                RefreshHidden();
+                TrayPopup.RefreshIfVisible(App.Current.Peers.GetAll());
+                Announce($"Unhid {name}");
+            };
+            HiddenExpander.Items.Add(new CommunityToolkit.WinUI.Controls.SettingsCard
+            {
+                Header = name,
+                Description = did[..8],
+                Content = unhide,
+            });
+        }
+    }
+
+    private async void OnReset(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Start over?",
+            Content = "ClipSync will forget every trusted device, hidden device, excluded app " +
+                      "and paused peer on this PC, then restart as it was when first installed.\n\n" +
+                      "This PC keeps its identity, and other devices are not told: to reconnect, " +
+                      "both sides will need to trust each other again.",
+            PrimaryButtonText = "Start over",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        Security.Identity.Log("Settings: start over — clearing trust and settings, restarting");
+        App.Current.TrustStore.Clear();
+        App.Current.Settings.ResetAll();
+
+        // Restart rather than un-picking live state object by object: the
+        // registry, discovery and every open connection were built on the
+        // trust that was just erased, and a fresh process is the one way to
+        // be sure nothing remembers it.
+        if (Environment.ProcessPath is { } exe)
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(exe) { UseShellExecute = true });
+        Application.Current.Exit();
     }
 
     /// One settings window at a time; re-activate the existing one.

@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
@@ -104,6 +105,10 @@ public sealed partial class TrayPopup : Window
 
     private void Refresh(IReadOnlyList<Peer> peers)
     {
+        // Hidden devices are a display preference, not a network one: they
+        // stay discovered and untrusted underneath, they just get no row.
+        // See AppSettings.Hidden and the settings window's Devices section.
+        peers = peers.Where(p => !App.Current.Settings.IsHidden(p.DidHex)).ToList();
         _peerCount = peers.Count;
         PeerList.Children.Clear();
         EmptyPanel.Visibility = peers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -253,8 +258,40 @@ public sealed partial class TrayPopup : Window
                 App.Current.TrustStore.Add(did, name);
                 App.Current.Discovery.ConnectToPeer(did);
             };
-            Grid.SetColumn(btn, 2);
-            row.Children.Add(btn);
+
+            // The other verb an untrusted machine needs: not mine, stop
+            // showing it. A small circled ✕ beside Trust; the device moves
+            // to the settings window's "Hidden devices" list, where it can
+            // be unhidden.
+            var hide = new Button
+            {
+                Content = new FontIcon { Glyph = CancelGlyph, FontSize = 11 },
+                Padding = new Thickness(0),
+                Width = 26, Height = 26,
+                CornerRadius = new CornerRadius(13),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var hideLabel = $"Hide {name} from this list";
+            AutomationProperties.SetName(hide, hideLabel);
+            ToolTipService.SetToolTip(hide, hideLabel);
+            hide.Click += (_, _) =>
+            {
+                Identity.Log($"Hide clicked: {name} did={did[..8]}");
+                App.Current.Settings.Hide(did, name);
+                Refresh(App.Current.Peers.GetAll());
+                SettingsWindow.RefreshHiddenIfOpen();
+            };
+
+            var actions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            actions.Children.Add(btn);
+            actions.Children.Add(hide);
+            Grid.SetColumn(actions, 2);
+            row.Children.Add(actions);
         }
         else
         {
@@ -304,6 +341,7 @@ public sealed partial class TrayPopup : Window
 
     private const string PauseGlyphText = "\uE769";  // Pause
     private const string PlayGlyph      = "\uE768";  // Play
+    private const string CancelGlyph    = "";  // \u2715, in a round button
 
     private int _peerCount;
 
