@@ -26,7 +26,7 @@
                                VerticalAlignment="Center"
                                TextTrimming="CharacterEllipsis"/>
                     <Border x:Name="PausedBadge" Visibility="Collapsed"
-                            Background="Orange" CornerRadius="8"
+                            Background="#FF9500" CornerRadius="8"
                             Padding="7,1" VerticalAlignment="Center">
                         <TextBlock Text="Paused" FontSize="11" FontWeight="SemiBold"
                                    Foreground="White"/>

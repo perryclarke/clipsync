@@ -155,9 +155,14 @@ public sealed partial class TrayPopup : Window
         // The dot mirrors the state word: green when data can flow, orange
         // when a mute is why it can't, yellow while still linking up, grey
         // when off or not yet trusted.
+        // Amber, not the caution theme brush: WinUI's caution colour is a
+        // yellow, which made a paused peer's dot near-indistinguishable
+        // from Looking's. Matches the Mac's orange and the Paused badge.
+        var amber = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0x95, 0x00));
+
         (Brush dotBrush, string status) = peer.State switch
         {
-            _ when muted      => (Themed("SystemFillColorCautionBrush", Colors.Orange), "Paused"),
+            _ when muted      => (amber, "Paused"),
             PeerState.Online  => (Themed("SystemFillColorSuccessBrush", Colors.LimeGreen), "Online"),
             PeerState.Pending => (new SolidColorBrush(Colors.Gray), "Waiting to be trusted"),
             PeerState.Looking => (new SolidColorBrush(Colors.Gold), "Looking…"),
@@ -215,7 +220,7 @@ public sealed partial class TrayPopup : Window
             // peers report it, so make it stand out in amber instead of the
             // same muted grey as a matching one.
             if (pv != Identity.AppVersion)
-                verRun.Foreground = Themed("SystemFillColorCautionBrush", Colors.Orange);
+                verRun.Foreground = amber;
             sub.Inlines.Add(verRun);
         }
 
