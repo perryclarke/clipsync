@@ -9,7 +9,7 @@ struct MenuBarView: View {
     var body: some View {
         // State lines: what is currently true.
         Text(coordinator.globalPaused ? "ClipSync — Paused" : "ClipSync")
-        Text("This Mac: \(myFingerprint)")
+        Text("This Mac: \(myFingerprint) / \(myVersion)")
 
         Divider()
 
@@ -70,5 +70,10 @@ struct MenuBarView: View {
 
     private var myFingerprint: String {
         String(Identity.shared.didHex.prefix(8))
+    }
+
+    private var myVersion: String {
+        // Absent when run straight from `swift run` (no app bundle).
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
 }

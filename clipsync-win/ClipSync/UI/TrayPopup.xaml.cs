@@ -22,7 +22,8 @@ public sealed partial class TrayPopup : Window
     public TrayPopup()
     {
         InitializeComponent();
-        DidText.Text = "me: " + Identity.Current.DidHex[..8];
+        var v = typeof(TrayPopup).Assembly.GetName().Version;
+        DidText.Text = $"me: {Identity.Current.DidHex[..8]} / {v?.Major}.{v?.Minor}.{v?.Build}";
 
         var hwnd = WindowNative.GetWindowHandle(this);
         var id = Win32Interop.GetWindowIdFromWindow(hwnd);
