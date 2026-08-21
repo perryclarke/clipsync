@@ -115,6 +115,48 @@ enum Codec {
         return encode(top)
     }
 
+    static func encodeFileChunk(streamId: UInt64, offset: UInt64, data: Data) -> Data {
+        encode([
+            "t": .unsignedInt(UInt64(MessageType.fileChunk.rawValue)),
+            "stream_id": .unsignedInt(streamId),
+            "offset": .unsignedInt(offset),
+            "data": .byteString(Array(data))
+        ])
+    }
+
+    static func encodeFileEnd(streamId: UInt64, totalSize: UInt64, sha256: Data) -> Data {
+        encode([
+            "t": .unsignedInt(UInt64(MessageType.fileEnd.rawValue)),
+            "stream_id": .unsignedInt(streamId),
+            "total_size": .unsignedInt(totalSize),
+            "sha256": .byteString(Array(sha256))
+        ])
+    }
+
+    static func decodeFileChunk(_ cbor: CBOR) -> (streamId: UInt64, offset: UInt64, data: Data)? {
+        guard case let .map(m) = cbor,
+              case let .unsignedInt(sid)? = m["stream_id"],
+              case let .unsignedInt(off)? = m["offset"],
+              case let .byteString(d)? = m["data"] else { return nil }
+        return (sid, off, Data(d))
+    }
+
+    static func decodeFileEnd(_ cbor: CBOR) -> (streamId: UInt64, totalSize: UInt64, sha256: Data)? {
+        guard case let .map(m) = cbor,
+              case let .unsignedInt(sid)? = m["stream_id"],
+              case let .unsignedInt(total)? = m["total_size"],
+              case let .byteString(h)? = m["sha256"] else { return nil }
+        return (sid, total, Data(h))
+    }
+
+    /// Capabilities from a Hello; empty if absent.
+    static func decodeHelloCaps(_ cbor: CBOR) -> Set<String> {
+        guard case let .map(m) = cbor, case let .array(arr)? = m["caps"] else { return [] }
+        var caps = Set<String>()
+        for c in arr { if case let .utf8String(s) = c { caps.insert(s) } }
+        return caps
+    }
+
     static func decodeFrame(_ payload: Data) throws -> CBOR {
         guard let decoded = try? CBOR.decode(Array(payload)) else { throw CodecError.invalid }
         return decoded

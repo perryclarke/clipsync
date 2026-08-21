@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using PeterO.Cbor;
-using System.Security.Cryptography;
 
 namespace ClipSync.Net;
 
@@ -22,35 +20,6 @@ public enum MessageType : byte
     EnrollConfirmA = 129,
     EnrollConfirmB = 130,
     EnrollIdentity = 131,
-}
-
-public sealed record ClipFormat(string Mime, ulong Size, byte[]? Inline, ulong? StreamId);
-
-public sealed record ClipboardItem(
-    ulong Seq,
-    byte[] OriginDid,
-    ulong TsMs,
-    List<ClipFormat> Formats,
-    string? Hint)
-{
-    /// <summary>Canonical hash used for loop suppression. Must match
-    /// the macOS implementation byte-for-byte.</summary>
-    public byte[] CanonicalHash()
-    {
-        using var sha = SHA256.Create();
-        var sorted = new List<ClipFormat>(Formats);
-        sorted.Sort((a, b) => string.CompareOrdinal(a.Mime, b.Mime));
-        var ms = new MemoryStream();
-        foreach (var f in sorted)
-        {
-            var mb = System.Text.Encoding.UTF8.GetBytes(f.Mime);
-            ms.Write(mb, 0, mb.Length);
-            ms.WriteByte(0);
-            if (f.Inline is { } inl) ms.Write(inl, 0, inl.Length);
-            ms.WriteByte(0xff);
-        }
-        return sha.ComputeHash(ms.ToArray());
-    }
 }
 
 public static class Codec
@@ -118,6 +87,47 @@ public static class Codec
         o.Add("formats", fms);
         if (item.Hint is { } h) o.Add("hint", h);
         return Frame(o);
+    }
+
+    public static byte[] EncodeFileChunk(ulong streamId, ulong offset, ReadOnlySpan<byte> data)
+    {
+        var o = CBORObject.NewMap();
+        o.Add("t", (int)MessageType.FileChunk);
+        o.Add("stream_id", streamId);
+        o.Add("offset", offset);
+        o.Add("data", data.ToArray());
+        return Frame(o);
+    }
+
+    public static byte[] EncodeFileEnd(ulong streamId, ulong totalSize, byte[] sha256)
+    {
+        var o = CBORObject.NewMap();
+        o.Add("t", (int)MessageType.FileEnd);
+        o.Add("stream_id", streamId);
+        o.Add("total_size", totalSize);
+        o.Add("sha256", sha256);
+        return Frame(o);
+    }
+
+    public static (ulong StreamId, ulong Offset, byte[] Data)? DecodeFileChunk(CBORObject body)
+    {
+        if (TypeOf(body) != MessageType.FileChunk) return null;
+        return (body["stream_id"].ToObject<ulong>(), body["offset"].ToObject<ulong>(), body["data"].GetByteString());
+    }
+
+    public static (ulong StreamId, ulong TotalSize, byte[] Sha256)? DecodeFileEnd(CBORObject body)
+    {
+        if (TypeOf(body) != MessageType.FileEnd) return null;
+        return (body["stream_id"].ToObject<ulong>(), body["total_size"].ToObject<ulong>(), body["sha256"].GetByteString());
+    }
+
+    /// Capabilities from a Hello; empty if absent.
+    public static HashSet<string> DecodeHelloCaps(CBORObject body)
+    {
+        var caps = new HashSet<string>(StringComparer.Ordinal);
+        if (body.ContainsKey("caps"))
+            foreach (var c in body["caps"].Values) caps.Add(c.AsString());
+        return caps;
     }
 
     public static MessageType? TypeOf(CBORObject body) =>

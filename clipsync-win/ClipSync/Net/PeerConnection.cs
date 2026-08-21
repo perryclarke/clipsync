@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Security;
@@ -25,6 +26,11 @@ public sealed class PeerConnection
 
     public byte[]? PeerDid { get; private set; }
     public string? PeerName { get; private set; }
+    /// Capabilities the peer advertised in its Hello. "stream" means it
+    /// reassembles FileChunk/FileEnd; without it, formats over the inline
+    /// limit are dropped rather than streamed (StreamPlanner).
+    public IReadOnlySet<string> PeerCaps => _peerCaps;
+    public bool PeerStreams => _peerCaps.Contains("stream");
     public PeerRole Role => _role;
 
     private readonly TcpClient _tcp;
@@ -34,8 +40,19 @@ public sealed class PeerConnection
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private SslStream? _ssl;
     private byte[]? _verifiedDid;
+    private HashSet<string> _peerCaps = new(StringComparer.Ordinal);
     private DateTime _lastRx = DateTime.UtcNow;
     private volatile bool _closed;
+
+    /// Per-connection stream_id source for formats we stream out.
+    private ulong _nextStreamId = 1;
+    /// Reassembly of streamed items the peer sends us. Only touched from
+    /// the read loop (and the ping loop's stale check), so no lock beyond
+    /// the assembler's own single-threaded contract is needed there.
+    private readonly StreamAssembler _assembler = new();
+    private readonly object _assemblerLock = new();
+
+    public static readonly string[] LocalCaps = { "text", "image", "files", "rich", "stream" };
 
     private static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(75);
@@ -155,12 +172,45 @@ public sealed class PeerConnection
         finally { _writeLock.Release(); }
     }
 
-    public Task SendItemAsync(ClipboardItem item) => SendAsync(Codec.EncodeClipboardItem(item));
+    /// Put a locally built (all-inline) item on the wire: small formats
+    /// inline, large ones as FileChunk/FileEnd streams after the item
+    /// frame, per StreamPlanner. The whole sequence goes out under the
+    /// write lock so nothing interleaves with it. See PROTOCOL.md §6.5, §10.
+    public async Task SendItemAsync(ClipboardItem item)
+    {
+        if (_ssl is null || _closed) return;
+        StreamPlanner.Result plan;
+        lock (_assemblerLock) plan = StreamPlanner.Plan(item, PeerStreams, () => _nextStreamId++);
+        foreach (var d in plan.Dropped)
+            Identity.Log($"PeerConnection: dropping {d.Mime} ({d.Size / (1024.0 * 1024.0):F1} MB): {d.Reason}");
+        if (plan.WireItem is null)
+        {
+            Identity.Log("PeerConnection: nothing of the item fits, not sending");
+            return;
+        }
+
+        await _writeLock.WaitAsync();
+        try
+        {
+            await _ssl.WriteAsync(Codec.EncodeClipboardItem(plan.WireItem));
+            foreach (var st in plan.Streams)
+            {
+                Identity.Log($"PeerConnection: streaming {st.Data.Length / (1024.0 * 1024.0):F1} MB as stream {st.StreamId}");
+                for (var off = 0; off < st.Data.Length; off += StreamPlanner.ChunkBytes)
+                {
+                    var n = Math.Min(StreamPlanner.ChunkBytes, st.Data.Length - off);
+                    await _ssl.WriteAsync(Codec.EncodeFileChunk(st.StreamId, (ulong)off, st.Data.AsSpan(off, n)));
+                }
+                await _ssl.WriteAsync(Codec.EncodeFileEnd(st.StreamId, (ulong)st.Data.Length, SHA256.HashData(st.Data)));
+            }
+            await _ssl.FlushAsync();
+        }
+        finally { _writeLock.Release(); }
+    }
 
     private async Task SendHelloAsync()
     {
-        await SendAsync(Codec.EncodeHello(_identity.Did, Environment.MachineName,
-            new[] { "text", "image", "files", "rich" }));
+        await SendAsync(Codec.EncodeHello(_identity.Did, Environment.MachineName, LocalCaps));
     }
 
     /// App-level keepalive: detects dead links (sleep, AP roam) that TCP
@@ -174,6 +224,11 @@ public sealed class PeerConnection
             {
                 await Task.Delay(PingInterval);
                 if (_closed) return;
+                lock (_assemblerLock)
+                {
+                    if (_assembler.DropStale(DateTime.UtcNow))
+                        Identity.Log("PeerConnection: dropped a streamed item with no progress for 30 s");
+                }
                 if (DateTime.UtcNow - _lastRx > IdleTimeout)
                 {
                     Identity.Log($"PeerConnection: keepalive timeout ({_role}), closing");
@@ -223,12 +278,49 @@ public sealed class PeerConnection
                     throw new InvalidDataException("hello DID does not match TLS certificate");
                 PeerDid = _verifiedDid;
                 PeerName = body.ContainsKey("name") ? body["name"].AsString() : null;
+                _peerCaps = Codec.DecodeHelloCaps(body);
                 Identity.Log($"Hello from: name={PeerName}, did={Convert.ToHexString(PeerDid).ToLowerInvariant()}");
                 OnReady?.Invoke();
                 break;
             case MessageType.ClipboardItem:
                 var item = Codec.DecodeClipboardItem(body);
-                if (item is not null) OnItem?.Invoke(item);
+                if (item is null) break;
+                if (!StreamAssembler.NeedsAssembly(item)) { OnItem?.Invoke(item); break; }
+                lock (_assemblerLock)
+                {
+                    var r = _assembler.Park(item, DateTime.UtcNow);
+                    if (r.Reason is { } why) Identity.Log($"PeerConnection: park streamed item: {r.Outcome} ({why})");
+                }
+                break;
+            case MessageType.FileChunk:
+                if (Codec.DecodeFileChunk(body) is { } ch)
+                {
+                    ClipboardItem? done = null;
+                    lock (_assemblerLock)
+                    {
+                        var r = _assembler.Chunk(ch.StreamId, ch.Offset, ch.Data, DateTime.UtcNow);
+                        if (r.Outcome != StreamOutcome.Ok) Identity.Log($"PeerConnection: chunk: {r.Outcome} ({r.Reason})");
+                        done = _assembler.TakeCompleted();
+                    }
+                    if (done is not null) OnItem?.Invoke(done);
+                }
+                break;
+            case MessageType.FileEnd:
+                if (Codec.DecodeFileEnd(body) is { } end)
+                {
+                    ClipboardItem? done = null;
+                    lock (_assemblerLock)
+                    {
+                        var r = _assembler.End(end.StreamId, end.TotalSize, end.Sha256, DateTime.UtcNow);
+                        if (r.Outcome != StreamOutcome.Ok) Identity.Log($"PeerConnection: end: {r.Outcome} ({r.Reason})");
+                        done = _assembler.TakeCompleted();
+                    }
+                    if (done is not null)
+                    {
+                        Identity.Log($"PeerConnection: streamed item complete ({done.Formats.Count} formats)");
+                        OnItem?.Invoke(done);
+                    }
+                }
                 break;
             case MessageType.Ping:
                 _ = SendAsync(Codec.EncodePong());

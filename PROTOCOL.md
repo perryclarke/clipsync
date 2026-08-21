@@ -101,6 +101,12 @@ the connection with `ProtocolError` on mismatch.
 }
 ```
 
+Capabilities are free-form strings. Defined so far: `text`, `image`,
+`files`, `rich`, and `stream` — the peer reassembles `FileChunk` /
+`FileEnd` (§6.5–6.6). A sender MUST NOT stream to a peer that did not
+advertise `stream`; it drops formats over the inline limit instead
+(§10). Peers before 0.7 do not advertise it.
+
 ### 6.2 ClipboardItem  (`t = 2`)
 
 Broadcast by the origin to every currently-connected trusted peer when
@@ -126,12 +132,19 @@ its local clipboard changes.
 
 At most one of `inline` / `stream_id` per format. A format with
 `stream_id` tells the receiver to expect matching `FileChunk` frames
-before the item is considered complete.
+before the item is considered complete. The receiver materializes every
+streamed format back to inline bytes before acting on the item, so
+everything downstream (clipboard writers, loop-prevention hash §8) sees
+exactly the item the sender's watcher built.
 
 ### 6.3 LargeItemOffer  (`t = 3`)
 
-Sent instead of inlining a ClipboardItem when the total item size is
-> 100 MiB. Receiver must opt in via `LargeItemAccept`.
+**Reserved — not implemented.** Items over the cap are trimmed by the
+sender (§10) rather than offered. Type numbers 3 and 4 are kept so they
+are never reused.
+
+Original definition: sent instead of inlining a ClipboardItem when the
+total item size is > 100 MiB; receiver must opt in via `LargeItemAccept`.
 
 ```
 {
@@ -146,6 +159,8 @@ Sent instead of inlining a ClipboardItem when the total item size is
 
 ### 6.4 LargeItemAccept  (`t = 4`)
 
+**Reserved — not implemented** (see §6.3).
+
 ```
 { t: 4, seq: uint, accept: bool }
 ```
@@ -154,17 +169,30 @@ If `accept = false` the sender discards the item silently.
 
 ### 6.5 FileChunk  (`t = 5`)
 
-Carries a slice of a stream. Chunks for different streams may be
-interleaved.
+Carries a slice of a stream.
 
 ```
 {
   t: 5,
   stream_id: uint,
   offset: uint,
-  data: bstr    // <= 1 MiB recommended
+  data: bstr    // <= 1 MiB
 }
 ```
+
+Ordering: after the `ClipboardItem` that references them, a sender emits
+each stream's chunks contiguously and in order, followed by that stream's
+`FileEnd`, then the next stream. Chunks of different streams are NOT
+interleaved. `offset` MUST equal the number of bytes of that stream the
+receiver has already accepted; a receiver drops the whole pending item on
+any gap, repeat, or overrun of the declared `size`. `stream_id` values are
+per connection and never reused within it.
+
+A receiver holds at most one pending (streamed, incomplete) item per
+connection. A new `ClipboardItem` with `stream_id` formats replaces an
+incomplete one — the sender is sequential, so the older item is stale. A
+pending item with no chunk progress for 30 s is dropped. Chunks for an
+unknown `stream_id` are ignored without closing the connection.
 
 ### 6.6 FileEnd  (`t = 6`)
 
@@ -285,10 +313,21 @@ C. This is intentional — minimal complexity and matches the
 
 ## 10. Size policy
 
-- Total item size ≤ **100 MiB** → auto-sync with `ClipboardItem`.
-- Total item size > 100 MiB → `LargeItemOffer`; receiver prompts the
-  user, replies with `LargeItemAccept`.
-- Single `FileChunk` `data` SHOULD be ≤ 1 MiB.
+- A format ≤ **64 KiB** is carried `inline`; larger formats are streamed
+  (`stream_id` + `FileChunk`/`FileEnd`), and only to peers advertising
+  the `stream` capability (§6.1). To other peers, formats over 64 KiB are
+  dropped from the item.
+- Item cap **100 MiB**, enforced by the sender: it walks the formats in
+  order, keeping each while the running total stays within the cap and
+  dropping the rest. If nothing fits, the item is not sent. Every drop is
+  logged locally; nothing is sent to the peer about it.
+- A receiver rejects (drops, without closing the connection) any
+  `ClipboardItem` whose declared sizes exceed the cap, so a peer cannot
+  make it allocate more than the sender would ever emit.
+- Single `FileChunk` `data` MUST be ≤ 1 MiB.
+- There is no offer/accept prompt (§6.3–6.4 reserved). Everything is held
+  in memory end to end and the receiver briefly holds about twice the
+  item size, which is why the cap should not be raised casually.
 
 ## 11. Versioning
 
