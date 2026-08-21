@@ -21,7 +21,7 @@ struct ClipSyncApp: App {
             Image(nsImage: StatusIcon.make(paused: coordinator.globalPaused))
                 .accessibilityLabel(coordinator.globalPaused ? "ClipSync, paused" : "ClipSync")
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
     }
 }
 
