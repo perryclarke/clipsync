@@ -63,15 +63,17 @@ final class Discovery {
         // `.other`. Advertising/listening over a tunnel makes us reachable
         // only through the VPN, which peers on the physical subnet can't use.
         params.prohibitedInterfaceTypes = [.other]
-        var txtDict: [String: String] = [
+        // Keep in step with PeerConnection.localCaps; the authoritative
+        // capability negotiation is the Hello, but the TXT record shouldn't
+        // advertise a stale, narrower set.
+        let txtDict: [String: String] = [
             "v": "1",
             "did": identity.didHex,
             "name": Host.current().localizedName ?? "Mac",
-            "caps": "text,image,files,rich",
+            "caps": "text,image,files,rich,stream",
             "pend": trustStore.isEmpty ? "1" : "0"
         ]
         let txt = NWTXTRecord(txtDict)
-        _ = txtDict
 
         do {
             let l = try NWListener(using: params)
