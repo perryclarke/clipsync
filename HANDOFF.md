@@ -162,7 +162,7 @@ to 0.8.0 / build 10 in this commit). None of them touch the wire protocol;
 the Mac needs its own equivalents of the first three:
 
 1. **Hidden devices.** An untrusted (pending) peer row gets a small round
-   ✕ button beside Trust; clicking it hides that device from the peer
+   slashed-eye button (SF Symbol `eye.slash` on the Mac) beside Trust; clicking it hides that device from the peer
    list. Hidden devices live in the settings file (`hiddenPeers`, a list
    of `{did, name}` — see `clipsync-win/ClipSync.Core/Settings/
    AppSettings.cs`, the reference implementation, and its tests) and can
@@ -186,7 +186,7 @@ the Mac needs its own equivalents of the first three:
    toggle in Settings.
 
 4. *(Windows-only, no Mac work)* the tray popup already filters hidden
-   devices and shows the ✕ on pending rows.
+   devices and shows the slashed-eye on pending rows.
 
 Gotchas:
 - `AppSettings` hidden entries normalise DIDs to lowercase and fall back

@@ -260,12 +260,13 @@ public sealed partial class TrayPopup : Window
             };
 
             // The other verb an untrusted machine needs: not mine, stop
-            // showing it. A small circled ✕ beside Trust; the device moves
+            // showing it. A small round slashed-eye button beside Trust —
+            // the "hide" affordance a password field uses; the device moves
             // to the settings window's "Hidden devices" list, where it can
             // be unhidden.
             var hide = new Button
             {
-                Content = new FontIcon { Glyph = CancelGlyph, FontSize = 11 },
+                Content = new FontIcon { Glyph = HideGlyph, FontSize = 12 },
                 Padding = new Thickness(0),
                 Width = 26, Height = 26,
                 CornerRadius = new CornerRadius(13),
@@ -341,7 +342,7 @@ public sealed partial class TrayPopup : Window
 
     private const string PauseGlyphText = "\uE769";  // Pause
     private const string PlayGlyph      = "\uE768";  // Play
-    private const string CancelGlyph    = "";  // \u2715, in a round button
+    private const string HideGlyph      = "";  // slashed eye, as a password reveal control uses
 
     private int _peerCount;
 
