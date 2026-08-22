@@ -179,7 +179,7 @@ struct MenuBarView: View {
         if paused && peer.state == .online { return "Paused" }
         switch peer.state {
         case .online:  return "Online"
-        case .pending: return "Not trusted"
+        case .pending: return "Waiting to be trusted"
         case .looking: return "Looking…"
         case .offline: return "Offline"
         }
