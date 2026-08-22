@@ -66,7 +66,9 @@ struct MenuBarView: View {
 
     @ViewBuilder
     private var peersSection: some View {
-        if coordinator.peerList.isEmpty {
+        // visiblePeers, not peerList: hidden devices keep discovery and
+        // trust state underneath, they just get no row here.
+        if coordinator.visiblePeers.isEmpty {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text("Looking for peers on the local network…")
@@ -76,7 +78,7 @@ struct MenuBarView: View {
             .padding(.vertical, 4)
         } else {
             VStack(spacing: 2) {
-                ForEach(coordinator.peerList) { peer in
+                ForEach(coordinator.visiblePeers) { peer in
                     peerRow(peer)
                 }
             }
@@ -109,6 +111,22 @@ struct MenuBarView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .accessibilityLabel("Trust \(peer.name)")
+                // The other verb an untrusted machine needs: not mine,
+                // stop showing it. Same slashed-eye affordance a password
+                // field's hide control uses; the device moves to the
+                // settings window's Hidden devices list.
+                Button {
+                    coordinator.hidePeer(peer.didHex, name: peer.name)
+                } label: {
+                    Image(systemName: "eye.slash")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 26, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Hide \(peer.name) from this list")
+                .accessibilityLabel("Hide \(peer.name) from this list")
             } else {
                 Button {
                     coordinator.setPeerPaused(peer.didHex, paused: !paused)

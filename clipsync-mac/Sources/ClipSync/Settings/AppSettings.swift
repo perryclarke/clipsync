@@ -1,5 +1,13 @@
 import Foundation
 
+/// A discovered-but-untrusted device the user chose not to see in the
+/// peer list. The name is whatever it advertised when hidden, kept so
+/// the settings list can say more than a hash.
+struct HiddenPeer: Equatable {
+    let didHex: String
+    let name: String
+}
+
 /// User preferences, stored as plain JSON at
 /// `~/Library/Application Support/ClipSync/settings.json`, alongside
 /// `trust.plist`. Same schema as the Windows side (`excludedApps` +
@@ -17,12 +25,15 @@ final class AppSettings {
     private let url: URL
     private var excludedList: [AppIdentity]
     private var pausedList: [String]        // lowercase DID hex, de-duplicated
+    private var hiddenList: [HiddenPeer]    // lowercase DID hex, de-duplicated
     private let lock = NSLock()
 
-    private init(url: URL, excluded: [AppIdentity], pausedPeers: [String]) {
+    private init(url: URL, excluded: [AppIdentity], pausedPeers: [String],
+                 hiddenPeers: [HiddenPeer]) {
         self.url = url
         self.excludedList = excluded
         self.pausedList = pausedPeers
+        self.hiddenList = hiddenPeers
     }
 
     static func defaultURL() -> URL {
@@ -38,6 +49,7 @@ final class AppSettings {
     static func load(url: URL) -> AppSettings {
         var excluded: [AppIdentity] = []
         var paused: [String] = []
+        var hidden: [HiddenPeer] = []
         if FileManager.default.fileExists(atPath: url.path) {
             do {
                 let data = try Data(contentsOf: url)
@@ -60,15 +72,23 @@ final class AppSettings {
                     guard let key = AppSettings.normaliseDid(did) else { continue }
                     if !paused.contains(key) { paused.append(key) }
                 }
+                for h in model.hiddenPeers ?? [] {
+                    guard let key = AppSettings.normaliseDid(h.did) else { continue }
+                    guard !hidden.contains(where: { $0.didHex == key }) else { continue }
+                    let name = h.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    hidden.append(HiddenPeer(didHex: key,
+                                             name: (name?.isEmpty == false ? name! : String(key.prefix(8)))))
+                }
             } catch {
                 // Corrupt or unreadable: start empty rather than crashing.
                 NSLog("AppSettings: could not read %@: %@; using defaults",
                       url.path, String(describing: error))
                 excluded = []
                 paused = []
+                hidden = []
             }
         }
-        return AppSettings(url: url, excluded: excluded, pausedPeers: paused)
+        return AppSettings(url: url, excluded: excluded, pausedPeers: paused, hiddenPeers: hidden)
     }
 
     // MARK: Excluded apps
@@ -130,6 +150,53 @@ final class AppSettings {
         persistLocked()
     }
 
+    // MARK: Hidden devices
+
+    /// Untrusted devices the user has hidden from the peer list, so an
+    /// office full of strangers' machines doesn't fill the popover. Hiding
+    /// is a display preference only: it does not touch trust, discovery or
+    /// connections; the popover just filters these DIDs out.
+    var hidden: [HiddenPeer] {
+        lock.lock(); defer { lock.unlock() }
+        return hiddenList
+    }
+
+    func isHidden(_ didHex: String) -> Bool {
+        guard let key = AppSettings.normaliseDid(didHex) else { return false }
+        lock.lock(); defer { lock.unlock() }
+        return hiddenList.contains { $0.didHex == key }
+    }
+
+    func hide(_ didHex: String, name: String) {
+        guard let key = AppSettings.normaliseDid(didHex) else { return }
+        lock.lock(); defer { lock.unlock() }
+        guard !hiddenList.contains(where: { $0.didHex == key }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        hiddenList.append(HiddenPeer(didHex: key,
+                                     name: trimmed.isEmpty ? String(key.prefix(8)) : trimmed))
+        persistLocked()
+    }
+
+    func unhide(_ didHex: String) {
+        guard let key = AppSettings.normaliseDid(didHex) else { return }
+        lock.lock(); defer { lock.unlock() }
+        let before = hiddenList.count
+        hiddenList.removeAll { $0.didHex == key }
+        guard hiddenList.count != before else { return }
+        persistLocked()
+    }
+
+    /// Forget every preference at once — excluded apps, per-peer pauses and
+    /// hidden devices — returning the file to its first-run state. Trust
+    /// lives in TrustStore and is the caller's to clear alongside this.
+    func resetAll() {
+        lock.lock(); defer { lock.unlock() }
+        excludedList.removeAll()
+        pausedList.removeAll()
+        hiddenList.removeAll()
+        persistLocked()
+    }
+
     /// DIDs compare lowercase; a blank one is not a peer.
     static func normaliseDid(_ didHex: String?) -> String? {
         guard let didHex else { return nil }
@@ -149,7 +216,8 @@ final class AppSettings {
                 FileModel.Entry(kind: $0.kind.rawValue, key: $0.key,
                                 name: $0.displayName, path: $0.path)
             },
-            pausedPeers: pausedList
+            pausedPeers: pausedList,
+            hiddenPeers: hiddenList.map { FileModel.HiddenEntry(did: $0.didHex, name: $0.name) }
         )
         do {
             let dir = url.deletingLastPathComponent()
@@ -172,11 +240,14 @@ final class AppSettings {
         var version: Int?       // optional on decode: a file missing it still loads
         var excludedApps: [Entry]?
         var pausedPeers: [String]?
+        var hiddenPeers: [HiddenEntry]?
 
-        init(version: Int, excludedApps: [Entry], pausedPeers: [String]) {
+        init(version: Int, excludedApps: [Entry], pausedPeers: [String],
+             hiddenPeers: [HiddenEntry]) {
             self.version = version
             self.excludedApps = excludedApps
             self.pausedPeers = pausedPeers
+            self.hiddenPeers = hiddenPeers
         }
 
         struct Entry: Codable {
@@ -184,6 +255,11 @@ final class AppSettings {
             var key: String?
             var name: String?
             var path: String?
+        }
+
+        struct HiddenEntry: Codable {
+            var did: String?
+            var name: String?
         }
     }
 }

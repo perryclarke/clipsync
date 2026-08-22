@@ -20,7 +20,7 @@ final class SettingsWindowController {
             w.title = "ClipSync Settings"
             w.styleMask = [.titled, .closable, .miniaturizable]
             w.isReleasedWhenClosed = false
-            w.setContentSize(NSSize(width: 480, height: 460))
+            w.setContentSize(NSSize(width: 480, height: 640))
             w.center()
             window = w
         }
@@ -34,9 +34,27 @@ final class SettingsWindowController {
 struct SettingsView: View {
     @EnvironmentObject var coordinator: AppCoordinator
     @State private var showingPicker = false
+    @State private var opensAtLogin = false
+    @State private var confirmingStartOver = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text("General")
+                .font(.headline)
+
+            Toggle("Open ClipSync at login", isOn: $opensAtLogin)
+                .disabled(!coordinator.canOpenAtLogin)
+                .onChange(of: opensAtLogin) { _, on in
+                    guard on != coordinator.opensAtLogin else { return }
+                    coordinator.setOpensAtLogin(on)
+                    // Registration can fail (and always does outside an app
+                    // bundle); reflect what actually happened.
+                    opensAtLogin = coordinator.opensAtLogin
+                }
+                .onAppear { opensAtLogin = coordinator.opensAtLogin }
+
+            Divider().padding(.vertical, 4)
+
             Text("Excluded apps")
                 .font(.headline)
             Text("Items copied while these apps are in the foreground are not sent to your other devices.")
@@ -69,12 +87,67 @@ struct SettingsView: View {
                     }
                 }
             }
-            .frame(height: 250)
+            .frame(height: 180)
             .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
 
             HStack {
                 Button("Add app…") { showingPicker = true }
                 Spacer()
+            }
+
+            Divider().padding(.vertical, 4)
+
+            // Untrusted machines dismissed from the peer list with the
+            // slashed-eye on their row. On an office subnet full of other
+            // people's computers this is the difference between a peer
+            // list and a directory of the whole floor.
+            Text("Hidden devices")
+                .font(.headline)
+
+            if coordinator.hiddenPeers.isEmpty {
+                Text("Devices you hide from the device list appear here.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(coordinator.hiddenPeers, id: \.didHex) { h in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(h.name).fontWeight(.medium)
+                                Text(String(h.didHex.prefix(8)))
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Unhide") { coordinator.unhidePeer(h.didHex) }
+                                .accessibilityLabel("Unhide \(h.name)")
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        if h != coordinator.hiddenPeers.last { Divider() }
+                    }
+                }
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            Divider().padding(.vertical, 4)
+
+            Text("Reset")
+                .font(.headline)
+
+            HStack(alignment: .top) {
+                Text("Forget trusted devices, hidden devices, excluded apps and paused peers, then relaunch ClipSync as it was when first installed.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Start over…") { confirmingStartOver = true }
+            }
+            .alert("Start over?", isPresented: $confirmingStartOver) {
+                Button("Start over", role: .destructive) { coordinator.startOver() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("ClipSync will forget every trusted device, hidden device, excluded app and paused peer on this Mac, then relaunch as it was when first installed. This Mac keeps its identity, and other devices are not told: to reconnect, both sides will need to trust each other again.")
             }
         }
         .padding(16)

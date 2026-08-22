@@ -47,6 +47,56 @@ final class AppSettingsTests: XCTestCase {
         let s = AppSettings.load(url: url)
         XCTAssertTrue(s.excluded.isEmpty)
         XCTAssertTrue(s.pausedPeers.isEmpty)
+        XCTAssertTrue(s.hidden.isEmpty)
+    }
+
+    private let did = "b6bf89d9aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+    func testHiddenPeerSurvivesRoundTripAndMatchesCaseInsensitively() {
+        AppSettings.load(url: url).hide(did.uppercased(), name: "Stranger")
+
+        let reloaded = AppSettings.load(url: url)
+        XCTAssertTrue(reloaded.isHidden(did))
+        XCTAssertEqual(reloaded.hidden, [HiddenPeer(didHex: did, name: "Stranger")])
+    }
+
+    func testHideIsIdempotentAndKeepsTheFirstName() {
+        let s = AppSettings.load(url: url)
+        s.hide(did, name: "First")
+        s.hide(did, name: "Second")
+        XCTAssertEqual(s.hidden.map(\.name), ["First"])
+    }
+
+    func testUnhideRemovesTheEntryAndPersists() {
+        let s = AppSettings.load(url: url)
+        s.hide(did, name: "Stranger")
+        s.unhide(did)
+
+        XCTAssertFalse(s.isHidden(did))
+        XCTAssertTrue(AppSettings.load(url: url).hidden.isEmpty)
+    }
+
+    func testHidingWithABlankNameFallsBackToTheFingerprint() {
+        let s = AppSettings.load(url: url)
+        s.hide(did, name: "  ")
+        XCTAssertEqual(s.hidden.map(\.name), [String(did.prefix(8))])
+    }
+
+    func testResetAllEmptiesEverythingAndPersists() {
+        let s = AppSettings.load(url: url)
+        s.add(AppIdentity(kind: .bundle, key: "com.apple.Notes", displayName: "Notes")!)
+        s.setPeerPaused(did, paused: true)
+        s.hide(did, name: "Stranger")
+
+        s.resetAll()
+
+        XCTAssertTrue(s.excluded.isEmpty)
+        XCTAssertTrue(s.pausedPeers.isEmpty)
+        XCTAssertTrue(s.hidden.isEmpty)
+        let reloaded = AppSettings.load(url: url)
+        XCTAssertTrue(reloaded.excluded.isEmpty)
+        XCTAssertTrue(reloaded.pausedPeers.isEmpty)
+        XCTAssertTrue(reloaded.hidden.isEmpty)
     }
 
     /// The mirror of the Windows test that ignores `kind: "bundle"`: a

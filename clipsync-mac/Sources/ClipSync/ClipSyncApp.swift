@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 @main
 struct ClipSyncApp: App {
@@ -44,6 +45,14 @@ final class AppCoordinator: ObservableObject {
     @Published var globalPaused = false
     @Published var pausedPeers: Set<String> = []
     @Published var excludedApps: [AppIdentity] = []
+    @Published var hiddenPeers: [HiddenPeer] = []
+
+    /// The peer list with hidden devices filtered out — what the popover
+    /// shows. Hiding is a display preference only (see AppSettings.hide).
+    var visiblePeers: [Peer] {
+        let hidden = Set(hiddenPeers.map(\.didHex))
+        return peerList.filter { !hidden.contains($0.didHex.lowercased()) }
+    }
 
     init() {
         // `--reset` forgets all trusted peers so the user must re-approve
@@ -86,6 +95,7 @@ final class AppCoordinator: ObservableObject {
 
         refreshPauseState()
         excludedApps = settings.excluded
+        hiddenPeers = settings.hidden
 
         foreground.start()
         watcher.start()
@@ -119,6 +129,58 @@ final class AppCoordinator: ObservableObject {
     func removeExclusion(_ app: AppIdentity) {
         settings.remove(app)
         excludedApps = settings.excluded
+    }
+
+    // MARK: Hidden devices
+
+    func hidePeer(_ didHex: String, name: String) {
+        settings.hide(didHex, name: name)
+        hiddenPeers = settings.hidden
+    }
+
+    func unhidePeer(_ didHex: String) {
+        settings.unhide(didHex)
+        hiddenPeers = settings.hidden
+    }
+
+    // MARK: Open at login
+
+    /// SMAppService needs a real app bundle; under a bare `swift run`
+    /// registration fails, so the settings toggle disables itself.
+    var canOpenAtLogin: Bool { Bundle.main.bundleIdentifier != nil }
+
+    var opensAtLogin: Bool { SMAppService.mainApp.status == .enabled }
+
+    func setOpensAtLogin(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() }
+            else { try SMAppService.mainApp.unregister() }
+        } catch {
+            NSLog("open-at-login %@ failed: %@", on ? "register" : "unregister",
+                  String(describing: error))
+        }
+    }
+
+    // MARK: Start over
+
+    /// Forget every trusted device and preference, then relaunch as
+    /// first-run. Identity is deliberately kept, and peers are not told;
+    /// both sides re-trust to reconnect. Relaunching rather than
+    /// un-picking live state: discovery, the registry and every open
+    /// connection were built on the trust just erased, and a fresh
+    /// process is the one way to be sure nothing remembers it.
+    func startOver() {
+        NSLog("start over: clearing trust and settings, relaunching")
+        trustStore.clear()
+        settings.resetAll()
+
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL,
+                                           configuration: config) { _, _ in }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            NSApp.terminate(nil)
+        }
     }
 }
 

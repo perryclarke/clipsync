@@ -196,3 +196,13 @@ Gotchas:
 - Windows named things: "Start ClipSync when you sign in", "Hidden
   devices", "Start over" — keep the Mac wording parallel ("Open ClipSync
   at login" is the natural Mac phrasing for the first).
+
+**Update, same day:** the Mac equivalents are now written (from Windows,
+NOT compiled — no Swift toolchain there): `hiddenPeers` in
+AppSettings.swift with tests, hide/unhide + visiblePeers filtering in
+AppCoordinator/MenuBarView (SF Symbol `eye.slash` on pending rows),
+"Hidden devices" + "Start over" + "Open ClipSync at login"
+(SMAppService.mainApp) in SettingsWindow.swift. To do on the Mac:
+`swift build`, `swift test`, then eyeball the settings window and the
+hide/unhide round trip. The login toggle only works from a real app
+bundle; under `swift run` it is disabled by `canOpenAtLogin`.
