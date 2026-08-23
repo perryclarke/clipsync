@@ -1,0 +1,80 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
+    <RootNamespace>ClipSync</RootNamespace>
+    <AssemblyName>clipsync</AssemblyName>
+    <Version>0.8.0</Version>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- The test project lives under this directory; keep it out of the
+       app's default source glob. -->
+  <ItemGroup>
+    <Compile Remove="ClipSync.Linux.Tests/**" />
+    <None Remove="ClipSync.Linux.Tests/**" />
+  </ItemGroup>
+
+  <!--
+    The protocol layer is *linked* from clipsync-win rather than copied or
+    refactored out of it. clipsync-win is a working, shipped tree that
+    cannot be compiled on Linux, so moving its files would ship unverified
+    changes; linking leaves it untouched.
+
+    These files are portable: BCL + PeterO.Cbor only. The Windows-bound
+    pieces (DPAPI-backed Identity/TrustStore, Win32 foreground tracking,
+    WinUI) are NOT here — see Security/ and Platform/ for the Linux
+    implementations, which deliberately reuse the same namespaces and
+    public surface so the linked files compile against them unchanged.
+
+    Consequence worth keeping: a Windows-side edit that breaks portability
+    fails *this* build immediately. That is the drift detector the
+    mac/win pair does not have.
+  -->
+  <ItemGroup>
+    <Compile Include="../clipsync-win/ClipSync.Core/Security/Log.cs" Link="Shared/Security/Log.cs" />
+    <Compile Include="../clipsync-win/ClipSync.Core/Net/ClipboardItem.cs" Link="Shared/Net/ClipboardItem.cs" />
+    <Compile Include="../clipsync-win/ClipSync.Core/Net/StreamPlanner.cs" Link="Shared/Net/StreamPlanner.cs" />
+    <Compile Include="../clipsync-win/ClipSync.Core/Net/StreamAssembler.cs" Link="Shared/Net/StreamAssembler.cs" />
+    <Compile Include="../clipsync-win/ClipSync.Core/Settings/AppIdentity.cs" Link="Shared/Settings/AppIdentity.cs" />
+    <Compile Include="../clipsync-win/ClipSync.Core/Settings/AppSettings.cs" Link="Shared/Settings/AppSettings.cs" />
+    <Compile Include="../clipsync-win/ClipSync.Core/Sync/SyncPause.cs" Link="Shared/Sync/SyncPause.cs" />
+    <Compile Include="../clipsync-win/ClipSync.Core/Clipboard/SuppressionPolicy.cs" Link="Shared/Clipboard/SuppressionPolicy.cs" />
+    <Compile Include="../clipsync-win/ClipSync.Core/Clipboard/ForegroundRing.cs" Link="Shared/Clipboard/ForegroundRing.cs" />
+    <Compile Include="../clipsync-win/ClipSync/Net/Protocol.cs" Link="Shared/Net/Protocol.cs" />
+    <Compile Include="../clipsync-win/ClipSync/Net/PeerConnection.cs" Link="Shared/Net/PeerConnection.cs" />
+    <Compile Include="../clipsync-win/ClipSync/Net/PeerRegistry.cs" Link="Shared/Net/PeerRegistry.cs" />
+  </ItemGroup>
+
+  <!--
+    This app runs on Linux only. Declaring that here rather than annotating
+    each type with [SupportedOSPlatform] keeps the annotation off the shared
+    surface: Identity and TrustStore are called from files linked out of
+    clipsync-win, and marking them linux-only would raise CA1416 at every one
+    of those call sites for a platform this project never builds for.
+  -->
+  <ItemGroup>
+    <SupportedPlatform Remove="@(SupportedPlatform)" />
+    <SupportedPlatform Include="linux" />
+  </ItemGroup>
+
+  <!-- The tests exercise internal seams (clipboard canonicalisation, the
+       X11 selection engine) directly rather than through the app's public
+       surface, which for an executable is barely a surface at all. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="ClipSync.Linux.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PeterO.Cbor" Version="4.5.5" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.95.0" />
+  </ItemGroup>
+
+</Project>

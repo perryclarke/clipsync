@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=ClipSync
+Comment=LAN-only encrypted clipboard sync
+Exec=/opt/clipsync/clipsync
+Icon=edit-copy
+Terminal=false
+Categories=Utility;
+# The tray icon is the whole UI; there is no window to show.
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

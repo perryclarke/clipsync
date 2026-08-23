@@ -13,6 +13,10 @@ clipsync-win/.vs/
 clipsync-win/packages/
 clipsync-win/publish/
 
+# Linux build artifacts
+clipsync-linux/**/bin/
+clipsync-linux/**/obj/
+
 # Test-tool build artifacts (tools/clipfuzz-*)
 tools/**/.build/
 tools/**/bin/

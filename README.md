@@ -1,15 +1,16 @@
 # ClipSync
 
-LAN-only, end-to-end encrypted clipboard sync between macOS 15+ and
-Windows 11 25H2+. No cloud. mDNS + mTLS 1.3 over IPv6. Items land in
-both the active clipboard and the OS clipboard history (macOS 15
-Clipboard History / Win+V). Current release: **0.6.0** on both
-platforms, kept in step because the two halves share a wire protocol
-and a settings schema.
+LAN-only, end-to-end encrypted clipboard sync between macOS 15+,
+Windows 11 25H2+ and Ubuntu 26.04+. No cloud. mDNS + mTLS 1.3 over IPv6. Items land in
+both the active clipboard and the OS clipboard history where the OS has
+one (macOS 15 Clipboard History / Win+V; Linux has no equivalent — see
+*Platform differences on Linux*). Current release: **0.8.0** on all three,
+kept in step because they share a wire protocol and a settings schema.
 
 ## Features
 
-Both platforms have the same behaviour; only the UI chrome differs.
+All three clients behave the same way; only the UI chrome differs, plus
+the Linux exceptions noted under *Platform differences on Linux*.
 
 ### Pause / resume
 
@@ -64,6 +65,9 @@ all of them.
   (notably the trust flow — see *Known gaps*).
 - **clipsync-mac/** — Swift 6 / SwiftUI `MenuBarExtra` app.
 - **clipsync-win/** — .NET 10 / WinUI 3 tray app.
+- **clipsync-linux/** — .NET 10 daemon with a StatusNotifierItem tray. Reuses
+  the Windows protocol layer by linking those source files directly, rather
+  than keeping a third copy of the codec and transport.
 - **tools/clipfuzz-mac**, **tools/clipfuzz-win** — clipboard fuzzers used
   to exercise the watchers and writers.
 - **dist/** — build outputs: `ClipSync.dmg`, `ClipSync.msi`, and
@@ -95,10 +99,52 @@ development, open `clipsync-win/ClipSync.sln` in Visual Studio 2022
 with the Windows App SDK 1.8 workload, or
 `dotnet build clipsync-win/ClipSync/ClipSync.csproj -c Release`.
 
+**Linux.** Run `clipsync-linux/build-deb.sh` (`amd64` or `arm64`). It
+publishes a self-contained build and packages it as
+`dist/clipsync_<version>_<arch>.deb`, with a `systemd --user` unit, an
+autostart entry, and `/usr/bin/clipsync`. For development,
+`dotnet run --project clipsync-linux` gives a console harness with the same
+daemon behind it (`peers`, `trust <did>`, `pause`, `status`; `--self-test`
+exercises the clipboard round trip). Requires `avahi-daemon` and an X or
+XWayland display.
+
+The tray icon needs a StatusNotifierItem host. On GNOME that is the
+AppIndicator extension — `gnome-extensions enable
+ubuntu-appindicators@ubuntu.com`. Without one the daemon syncs normally and
+simply has no icon, and says so at startup.
+
+**Debug logging (Linux).** Off by default. `--debug` on the command line or
+`CLIPSYNC_DEBUG=1` in the environment. Output goes to stderr, which as a
+service means `journalctl --user -u clipsync`.
+
 **Debug logging (Windows).** Off by default. Turn it on with `--debug`
 (also `-d` / `/debug`) on the command line, `CLIPSYNC_DEBUG=1` in the
 environment, or an empty `debug-enabled` file next to the log. Output
 goes to `%LOCALAPPDATA%\ClipSync\debug.log`.
+
+## Platform differences on Linux
+
+Everything in *Features* works on Linux, with three documented exceptions.
+
+**No clipboard history.** Linux has no equivalent of macOS 15's Clipboard
+History or Win+V, so items land in the active clipboard only. Not a gap to
+work around — there is nothing to land in.
+
+**Excluded apps cover X11/XWayland applications only.** Wayland gives a
+background process no way to learn which application made a copy: the
+selection arrives owned by the compositor's bridge. Where the owner is a
+real X window it is identified and matched (by `WM_CLASS`); where it is not,
+the item is treated as not excluded and is synced — the same fail-open
+behaviour the other two platforms document for apps they cannot identify.
+It just happens more often here.
+
+**The PRIMARY selection is not synced.** Middle-click selection fires on
+every drag, has no counterpart on macOS or Windows, and syncing it would
+broadcast continuously. Only CLIPBOARD is read and written.
+
+Also worth knowing: on GNOME the clipboard is reached through X11/XFixes
+over XWayland, because Mutter advertises no `ext-data-control-v1`. See
+`HANDOFF.md` for the measurement and when to revisit.
 
 ## Known gaps
 

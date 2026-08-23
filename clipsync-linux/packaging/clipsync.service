@@ -1,0 +1,20 @@
+[Unit]
+Description=ClipSync — LAN clipboard sync
+Documentation=https://github.com/perry/clipsync
+# The clipboard backend needs a display, and discovery needs the session bus.
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/opt/clipsync/clipsync
+Restart=on-failure
+RestartSec=5
+
+# Diagnostics go to stderr, which the journal already timestamps and
+# rotates: journalctl --user -u clipsync
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical-session.target
