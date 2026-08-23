@@ -26,41 +26,33 @@ internal sealed class MenuItem
     public List<MenuItem> Children { get; init; } = new();
 }
 
-/// What the menu shows.
+/// What the UIs show.
 internal sealed record TrayState(
     IReadOnlyList<Peer> Peers,
     bool Paused,
     Func<string, bool> IsMuted,
     IReadOnlyList<HiddenPeer> Hidden);
 
-/// What the menu can do.
+/// What the UIs can do.
 internal sealed record TrayActions(
     Action<bool> SetPaused,
     Action<string> Trust,
     Action<string, bool> SetMuted,
     Action<string, string> Hide,
     Action<string> Unhide,
+    Action OpenWindow,
     Action Quit);
 
-/// Builds the tray menu.
+/// Builds the tray menu: the right-click fallback, not the primary UI.
 ///
-/// **Flat, with every action visible.** Two richer shapes were tried against
-/// GNOME's AppIndicator extension and neither works:
-///
-/// - *Real submenus.* The host fetches the whole tree, draws the submenu
-///   arrow, and then never populates the child menu. Confirmed by serving
-///   the full tree — GetLayout returns the grandchildren correctly — and
-///   watching it still open empty.
-/// - *Disclosure rows*, as the Quick Settings panel uses for Wi-Fi and Power
-///   Mode. The extension makes every dbusmenu entry a PopupMenuItem, and
-///   activating one closes the whole popup, so a row that expands on click
-///   costs a reopen before the disclosed action can be picked. Two clicks
-///   and a reopen to do what one click should.
-///
-/// So the menu shows everything at once: a device row, then its actions
-/// indented beneath it. One click, one action, no reopening. Anything that
-/// genuinely needs a richer interaction belongs in a settings window, not in
-/// a tray menu the host can only render as a flat list.
+/// The app window (see WindowModel) is where devices are trusted, paused
+/// and hidden. This menu exists for two reasons: hosts that never route
+/// Activate still need a way to open the window, and pause/quit should
+/// stay one click away. It is deliberately three items — everything
+/// arriving over dbusmenu renders as a flat list of one-shot actions that
+/// closes on every click (GNOME's AppIndicator extension; the richer
+/// shapes were tried and don't work, see the design doc), so anything
+/// needing a sequence of interactions belongs in the window.
 internal sealed class TrayMenu
 {
     private readonly Dictionary<int, MenuItem> _byId = new();
@@ -85,98 +77,22 @@ internal sealed class TrayMenu
 
         root.Children.Add(New(new MenuItem
         {
+            Label = "Open ClipSync",
+            Activate = actions.OpenWindow,
+        }));
+
+        root.Children.Add(New(new MenuItem
+        {
             Label = state.Paused ? "Resume Syncing" : "Pause Syncing",
             Checked = state.Paused,
             Activate = () => actions.SetPaused(!state.Paused),
         }));
 
-        // Hidden devices are a display preference only: they stay
-        // discovered, trusted and connected, they are just not listed.
-        var hiddenDids = state.Hidden.Select(h => h.DidHex).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var visible = state.Peers.Where(p => !hiddenDids.Contains(p.DidHex)).ToList();
-
-        root.Children.Add(Separator());
-
-        if (visible.Count == 0)
-        {
-            root.Children.Add(New(new MenuItem { Label = "No devices found", Enabled = false }));
-        }
-        else
-        {
-            for (var i = 0; i < visible.Count; i++)
-            {
-                var peer = visible[i];
-                if (i > 0) root.Children.Add(Separator());
-
-                root.Children.Add(New(new MenuItem
-                {
-                    Label = $"{peer.Name} — {Describe(peer)}",
-                    Enabled = false,
-                }));
-
-                if (peer.State == PeerState.Pending)
-                {
-                    // The fingerprint is shown so it can be checked against
-                    // the other device before trusting, which is the only
-                    // verification two-sided TOFU offers.
-                    root.Children.Add(New(new MenuItem
-                    {
-                        Label = $"    Trust this device ({peer.DidHex[..8]})",
-                        Activate = () => actions.Trust(peer.DidHex),
-                    }));
-                    root.Children.Add(New(new MenuItem
-                    {
-                        Label = "    Hide this device",
-                        Activate = () => actions.Hide(peer.DidHex, peer.Name),
-                    }));
-                }
-                else
-                {
-                    var muted = state.IsMuted(peer.DidHex);
-                    root.Children.Add(New(new MenuItem
-                    {
-                        Label = muted ? "    Resume sending to this device"
-                                      : "    Pause sending to this device",
-                        Checked = muted,
-                        Activate = () => actions.SetMuted(peer.DidHex, !muted),
-                    }));
-                }
-            }
-        }
-
-        if (state.Hidden.Count > 0)
-        {
-            root.Children.Add(Separator());
-            root.Children.Add(New(new MenuItem
-            {
-                Label = $"Hidden devices ({state.Hidden.Count})",
-                Enabled = false,
-            }));
-            foreach (var hidden in state.Hidden)
-            {
-                root.Children.Add(New(new MenuItem
-                {
-                    Label = $"    Show {hidden.Name}",
-                    Activate = () => actions.Unhide(hidden.DidHex),
-                }));
-            }
-        }
-
-        root.Children.Add(Separator());
+        root.Children.Add(New(new MenuItem { IsSeparator = true, Enabled = false }));
         root.Children.Add(New(new MenuItem { Label = "Quit ClipSync", Activate = actions.Quit }));
 
         Root = root;
     }
-
-    private static string Describe(Peer peer) => peer.State switch
-    {
-        PeerState.Online => peer.Version is { } v ? $"Online, {v}" : "Online",
-        PeerState.Pending => "Waiting to be trusted",
-        PeerState.Looking => "Looking…",
-        _ => "Offline",
-    };
-
-    private MenuItem Separator() => New(new MenuItem { IsSeparator = true, Enabled = false });
 
     private MenuItem New(MenuItem template)
     {

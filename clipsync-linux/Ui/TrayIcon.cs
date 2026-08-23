@@ -119,7 +119,16 @@ internal sealed class TrayIcon : IAsyncDisposable, IPathMethodHandler
     public void Rebuild()
     {
         if (_state is null || _actions is null) return;
+        var wasPaused = _menu.Paused;
         _menu.Build(_state(), _actions);
+
+        // The icon and title both change with the pause state, and hosts
+        // cache them until told otherwise.
+        if (_menu.Paused != wasPaused)
+        {
+            EmitItemSignal("NewIcon");
+            EmitItemSignal("NewTitle");
+        }
 
         var signature = Signature();
         if (signature == _lastSignature) return;
@@ -137,6 +146,28 @@ internal sealed class TrayIcon : IAsyncDisposable, IPathMethodHandler
                i => $"{i.Id}\u001e{i.Label}\u001e{i.Enabled}\u001e{i.Checked}\u001e{i.IsSeparator}"));
 
     private string? _lastSignature;
+
+    private IReadOnlyList<(int Size, byte[] Argb)>? CurrentPixmaps()
+        => _menu.Paused ? TrayPixmaps.Paused : TrayPixmaps.Active;
+
+    private void EmitItemSignal(string member)
+    {
+        if (_conn is not { } conn || !Registered) return;
+        try
+        {
+            var w = conn.GetMessageWriter();
+            try
+            {
+                w.WriteSignalHeader(null, ItemPath, ItemIface, member, "");
+                conn.TrySendMessage(w.CreateMessage());
+            }
+            finally { w.Dispose(); }
+        }
+        catch (Exception ex)
+        {
+            Identity.Log($"Tray: {member} failed: {ex.Message}");
+        }
+    }
 
     private void EmitLayoutUpdated()
     {
@@ -194,10 +225,19 @@ internal sealed class TrayIcon : IAsyncDisposable, IPathMethodHandler
     {
         switch (member)
         {
-            // A click on the icon. With ItemIsMenu the host shows the menu
-            // itself, so there is nothing to do but acknowledge.
+            // Left click (and middle click). ItemIsMenu is false, so the
+            // host routes the click here instead of opening the menu, and
+            // it opens the app window. Reply first: opening the window is
+            // not instant and the host is waiting on the method return.
             case "Activate":
             case "SecondaryActivate":
+                context.Reply(context.CreateReplyWriter("").CreateMessage());
+                _actions?.OpenWindow();
+                break;
+
+            // Right click. Hosts that render the Menu property themselves
+            // (GNOME's AppIndicator extension does) never call this; it
+            // exists for the ones that do.
             case "ContextMenu":
             case "Scroll":
                 context.Reply(context.CreateReplyWriter("").CreateMessage());
@@ -486,7 +526,7 @@ internal sealed class TrayIcon : IAsyncDisposable, IPathMethodHandler
 
     private static string[] PropertyNames(string? path) => path == MenuPath
         ? ["Version", "Status", "TextDirection", "IconThemePath"]
-        : ["Category", "Id", "Title", "Status", "IconName", "Menu", "ItemIsMenu"];
+        : ["Category", "Id", "Title", "Status", "IconName", "IconPixmap", "Menu", "ItemIsMenu"];
 
     private bool WriteProperty(ref MessageWriter w, string? path, string name)
     {
@@ -512,18 +552,38 @@ internal sealed class TrayIcon : IAsyncDisposable, IPathMethodHandler
             case "Title": w.WriteVariantString(_menu.Paused ? "ClipSync — Paused" : "ClipSync"); return true;
             case "Status": w.WriteVariantString("Active"); return true;
 
-            // A stock icon name rather than a bundled pixmap: the shell then
-            // renders it in the panel's own style, and there is no icon file
-            // to install or theme to match.
+            // The real icon is the pixmap below — the same clipboard-plus-
+            // badge composition as the Mac and Windows status icons, which
+            // no stock name resembles. An empty IconName makes the host
+            // fall through to IconPixmap; the names are only the fallback
+            // for when the SVGs failed to render.
             case "IconName":
-                w.WriteVariantString(_menu.Paused ? "edit-paste-symbolic" : "edit-copy-symbolic");
+                w.WriteVariantString(
+                    CurrentPixmaps() is not null ? ""
+                    : _menu.Paused ? "edit-paste-symbolic" : "edit-copy-symbolic");
                 return true;
+
+            case "IconPixmap":
+            {
+                w.WriteSignature("a(iiay)");
+                var array = w.WriteArrayStart(DBusType.Struct);
+                foreach (var (size, argb) in CurrentPixmaps() ?? [])
+                {
+                    w.WriteStructureStart();
+                    w.WriteInt32(size);
+                    w.WriteInt32(size);
+                    w.WriteArray(argb);
+                }
+                w.WriteArrayEnd(array);
+                return true;
+            }
 
             case "Menu": w.WriteVariantObjectPath(MenuPath); return true;
 
-            // Tells the host this item has no useful left-click action of
-            // its own and should just show the menu.
-            case "ItemIsMenu": w.WriteVariantBool(true); return true;
+            // False: a left click means something (open the window) and
+            // must arrive as Activate rather than opening the menu. The
+            // menu stays attached for right-click.
+            case "ItemIsMenu": w.WriteVariantBool(false); return true;
 
             default: return false;
         }
@@ -543,6 +603,7 @@ internal sealed class TrayIcon : IAsyncDisposable, IPathMethodHandler
           <property name="Title" type="s" access="read"/>
           <property name="Status" type="s" access="read"/>
           <property name="IconName" type="s" access="read"/>
+          <property name="IconPixmap" type="a(iiay)" access="read"/>
           <property name="Menu" type="o" access="read"/>
           <property name="ItemIsMenu" type="b" access="read"/>
           <method name="Activate">

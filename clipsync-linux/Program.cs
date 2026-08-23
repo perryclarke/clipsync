@@ -72,25 +72,35 @@ public static class Program
         var shutdown = new TaskCompletionSource();
 
         await using var tray = new TrayIcon();
-        tray.Bind(
-            state: () => new TrayState(peers.GetAll(), pause.GlobalPaused,
-                                       pause.IsMuted, settings.Hidden),
-            actions: new TrayActions(
-                SetPaused: p => pause.GlobalPaused = p,
-                Trust: did =>
-                {
-                    var peer = peers.GetAll().FirstOrDefault(p => p.DidHex == did);
-                    trust.Add(did, peer?.Name ?? did[..8]);
-                    discovery.ConnectToPeer(did);
-                },
-                SetMuted: pause.SetMuted,
-                Hide: settings.Hide,
-                Unhide: settings.Unhide,
-                Quit: () => shutdown.TrySetResult()));
+        var window = new MainWindow();
+
+        // Every action refreshes both UIs: the tray rebuild is cheap and
+        // signature-guarded, and the window only repaints while visible.
+        Action refreshUis = () => { tray.Rebuild(); window.Refresh(); };
+        Func<TrayState> uiState = () => new TrayState(peers.GetAll(), pause.GlobalPaused,
+                                                      pause.IsMuted, settings.Hidden);
+        var uiActions = new TrayActions(
+            SetPaused: p => { pause.GlobalPaused = p; refreshUis(); },
+            Trust: did =>
+            {
+                var peer = peers.GetAll().FirstOrDefault(p => p.DidHex == did);
+                trust.Add(did, peer?.Name ?? did[..8]);
+                discovery.ConnectToPeer(did);
+                refreshUis();
+            },
+            SetMuted: (did, muted) => { pause.SetMuted(did, muted); refreshUis(); },
+            Hide: (did, name) => { settings.Hide(did, name); refreshUis(); },
+            Unhide: did => { settings.Unhide(did); refreshUis(); },
+            OpenWindow: window.Open,
+            Quit: () => shutdown.TrySetResult());
+
+        tray.Bind(uiState, uiActions);
+        window.Bind(uiState, uiActions, Environment.MachineName, identity.DidHex[..8]);
 
         peers.OnChange = list =>
         {
             tray.Rebuild();
+            window.Refresh();
             Console.WriteLine($"\n-- peers ({list.Count}) --");
             foreach (var p in list)
                 Console.WriteLine($"   {p.DidHex[..8]}  {p.Name,-24} {p.State}" +
@@ -105,6 +115,10 @@ public static class Program
             Console.Write("> ");
             writer.Apply(item);
         };
+
+        // Before discovery: the first peer change starts the GTK thread,
+        // and GirCore registration must not race it. See TrayPixmaps.
+        TrayPixmaps.EnsureLoaded();
 
         try
         {
@@ -128,7 +142,7 @@ public static class Program
 
         if (await tray.StartAsync())
         {
-            Console.WriteLine("tray: registered with StatusNotifierWatcher");
+            Console.WriteLine("tray: registered with StatusNotifierWatcher (click the icon to open the window)");
         }
         else
         {
@@ -138,6 +152,10 @@ public static class Program
             Console.WriteLine("      On GNOME, enable it with:");
             Console.WriteLine("      gnome-extensions enable ubuntu-appindicators@ubuntu.com");
         }
+
+        // Debug convenience: the window normally opens from a tray click,
+        // which a test harness has no way to fake.
+        if (args.Contains("--open-window")) window.Open();
 
         Console.WriteLine($"\nlistening on port {discovery.Port}, browsing _clipsync._tcp");
         Console.WriteLine(Commands);
@@ -153,7 +171,8 @@ public static class Program
         }
         else
         {
-            await Task.WhenAny(ConsoleLoop(discovery, peers, trust, pause, settings), shutdown.Task);
+            await Task.WhenAny(ConsoleLoop(discovery, peers, trust, pause, settings, window.Open),
+                               shutdown.Task);
         }
         return 0;
     }
@@ -245,12 +264,12 @@ public static class Program
                                   $"clipsync-selftest-{Guid.NewGuid():N}.json");
 
     private const string Commands =
-        "commands: peers | status | trust <did> | pause | resume | mute <did> | unmute <did> |\n" +
+        "commands: peers | status | open | trust <did> | pause | resume | mute <did> | unmute <did> |\n" +
         "          exclude <wm-class> | unexclude <wm-class> | quit";
 
     /// Stand-in for the tray menu: enough to click "Trust" from a terminal.
     private static async Task ConsoleLoop(Discovery discovery, PeerRegistry peers, TrustStore trust,
-                                          SyncPause pause, AppSettings settings)
+                                          SyncPause pause, AppSettings settings, Action openWindow)
     {
         while (true)
         {
@@ -263,6 +282,10 @@ public static class Program
             {
                 case "quit" or "exit":
                     return;
+
+                case "open":
+                    openWindow();
+                    break;
 
                 case "peers":
                     foreach (var p in peers.GetAll())

@@ -600,3 +600,81 @@ Also fixed here: an Avahi `CollisionError` was fatal, so a second instance
 cosmetic — the did in the TXT record is the identity — so publishing now
 retries as "name #2". This would have hit two machines sharing a hostname,
 and under systemd it would have been a restart loop.
+
+## Handoff 2026-08-23 — Linux app window replaces the tray menu
+
+Design doc: `docs/superpowers/specs/2026-08-23-linux-app-window-design.md`.
+Linux only; no protocol, settings-schema, or mac/Windows changes.
+
+**What changed.** The flat tray menu stopped being the primary Linux UI.
+Left-clicking the icon now opens a GTK4 + libadwaita window (Gir.Core
+0.8.1 bindings, `GirCore.Adw-1` in the csproj) with the device list —
+Trust with the 8-hex fingerprint for pending peers, a send switch for
+trusted ones, hide/show — plus the global Pause Syncing switch and a
+"This device" row. The dbusmenu shrank to a right-click fallback: Open
+ClipSync / Pause Syncing / Quit ClipSync.
+
+Mechanics: `ItemIsMenu` is now false and `Activate` /
+`SecondaryActivate` open the window (`Ui/TrayIcon.cs`) — though see the
+click-routing finding below for what GNOME actually sends. GTK runs on one
+lazily-started background thread (`Ui/UiThread.cs`) — the daemon still
+starts and syncs with no display, logging "the window is unavailable"
+once. The window renders a pure, unit-tested model (`Ui/WindowModel.cs`,
+`WindowModelTests`); `Ui/MainWindow.cs` adds no wording of its own. The
+window hides on close; every UI action refreshes both the window and the
+tray menu. Peer names are rendered with `use-markup` off — they arrive
+off the network and Adw row titles are Pango markup by default.
+
+**Icon parity (added later the same day).** The tray icon now matches the
+Mac composition — clipboard glyph with a blue wifi badge, orange pause
+bars when paused — instead of the stock `edit-copy-symbolic`. Two SVGs
+(`icons/tray-*.svg`, drawn to mirror `StatusIcon.swift`, macOS system
+blue and the Mac's dark-bar orange) are rendered at 22/44 px through
+gdk-pixbuf's librsvg loader and served over the SNI `IconPixmap`
+property (`Ui/TrayPixmaps.cs`); `IconName` goes empty so the host falls
+through to the pixmap, and reverts to the stock names if rendering fails
+(no librsvg, missing files). A pause flip now emits `NewIcon` +
+`NewTitle` so hosts drop their cached copies. Two traps encountered:
+GirCore's `Module.Initialize()` must run before any standalone
+gdk-pixbuf call (the window path gets it via Adw implicitly); gdk-pixbuf
+only recognizes an SVG whose *first bytes* are `<svg` — an XML prolog or
+leading comment makes the file "unrecognizable"; and GirCore's
+module/type registration is NOT thread-safe — pixmap init on the D-Bus
+thread racing `Adw.Application.New` on the GTK thread threw a
+`TypeInitializationException` and killed the window (found live: "open
+no longer works"). `TrayPixmaps.EnsureLoaded()` now runs in Main before
+discovery starts, so nothing can race it.
+
+New debug affordances: `open` console command and `--open-window` flag.
+The .deb now depends on `libgtk-4-1` and `libadwaita-1-0` (runtime only;
+the bindings are managed P/Invoke, so building needs no native packages).
+
+**Verified.** `dotnet build` clean; 56 tests pass (TrayMenuTests
+rewritten for the three-item menu, WindowModelTests new). Live on the
+real GNOME session, same day:
+
+- Left and right click both show the three-item menu; "Open ClipSync"
+  opens the window, which appears and renders correctly.
+- Trust clicked in the window against Perry's Mac Studio; the Mac then
+  trusted back; Hello completed, the row went Online (v0.7.1), and a
+  clipboard item was broadcast to it. Window → trust → sync end-to-end.
+- Text copies in BOTH directions with the Mac Studio — the first live
+  proof of Mac→Linux receiving (a 217-byte text item arrived and landed
+  in the clipboard, with no echo back).
+
+**Click-routing finding (from the extension's source,
+`indicatorStatusIcon.js`):** a single left click NEVER reaches
+`Activate` while a menu is attached — the extension introspects for an
+`Activate` method (`ItemIsMenu` is not consulted), and when found it
+waits out the double-click timeout and then toggles the menu anyway.
+Double-click calls `Activate`; middle click calls `SecondaryActivate`
+(both open our window). Detaching the menu would NOT help: with no menu
+items a single click does nothing at all. So menu-with-Open-first is the
+ceiling for a single left click on GNOME; keep the menu.
+
+**Still unverified:** double-click / middle-click opening the window
+(wired, not yet tried), the send switch and hide button in the window.
+
+**Still to build (stage 2 of the design doc):** excluded-apps editor in
+the window (console `exclude` remains the only UI), "Start ClipSync when
+you sign in", and "Start over".

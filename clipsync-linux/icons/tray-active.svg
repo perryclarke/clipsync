@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+  <!-- The tray icon while syncing: the same composition as the Mac menu-bar
+       icon (SF "list.clipboard.fill" + blue wifi badge) and the Windows tray
+       badge. White glyph because the GNOME top bar is dark in both themes;
+       the badge blue is macOS systemBlue, matching StatusIcon.swift.
+       NOTE: the <svg> tag must be the first bytes of the file — gdk-pixbuf
+       recognizes the format by sniffing the file head, and an XML prolog
+       or leading comment makes it unrecognizable. -->
+  <defs>
+    <mask id="cutouts">
+      <rect width="22" height="22" fill="white"/>
+      <!-- halo around the clip, separating it from the body so the shape
+           reads as a clipboard rather than a battery -->
+      <rect x="7.3" y="0.4" width="7.4" height="5.6" rx="2" fill="black"/>
+      <!-- the list lines, knocked out of the fill like the SF symbol -->
+      <rect x="7.6" y="8.2" width="6.8" height="1.25" rx="0.6" fill="black"/>
+      <rect x="7.6" y="11.0" width="6.8" height="1.25" rx="0.6" fill="black"/>
+    </mask>
+  </defs>
+  <rect x="4.6" y="3.2" width="12.8" height="17" rx="2" fill="#ffffff" mask="url(#cutouts)"/>
+  <rect x="8.2" y="1.2" width="5.6" height="4" rx="1.4" fill="#ffffff"/>
+  <g fill="none" stroke="#0a84ff" stroke-width="1.5" stroke-linecap="round">
+    <path d="M 8.88 16.18 A 3 3 0 0 1 13.12 16.18"/>
+    <path d="M 7.11 14.41 A 5.5 5.5 0 0 1 14.89 14.41"/>
+  </g>
+  <circle cx="11" cy="18.2" r="1.15" fill="#0a84ff"/>
+</svg>

@@ -19,7 +19,8 @@ stops this device sending anything to anybody; the title reads
 "ClipSync — Paused" (and on Windows the tray tooltip follows), so it is
 visible without opening the menu. Each known peer also has its own
 pause — a ⏸ / ▶ button on Windows, an entry in the peer's submenu on
-macOS — which pauses sending to just that machine. Both are send-only:
+macOS, a switch on the device's row in the ClipSync window on Linux —
+which pauses sending to just that machine. Both are send-only:
 items from peers still arrive and still land in your clipboard while
 paused, and nothing is queued or replayed on resume. A per-peer pause is
 remembered across restarts; a global one deliberately is not, so a
@@ -112,6 +113,18 @@ The tray icon needs a StatusNotifierItem host. On GNOME that is the
 AppIndicator extension — `gnome-extensions enable
 ubuntu-appindicators@ubuntu.com`. Without one the daemon syncs normally and
 simply has no icon, and says so at startup.
+
+The UI is the ClipSync window (GTK4 / libadwaita): the device list with
+**Trust** buttons for new peers, a per-device send switch, hide/show,
+and the global **Pause Syncing** switch. Clicking the icon shows a
+three-item menu — **Open ClipSync**, Pause, Quit — and double-click or
+middle-click opens the window directly. (GNOME's AppIndicator extension
+never routes a single click to the window while a menu is attached, and
+a StatusNotifierItem menu can only be a flat list that closes on every
+click, which is why the menu stays minimal and the window does the
+work.) Closing the window leaves the daemon running. The icon itself
+matches the other platforms — the clipboard glyph with a blue wifi badge,
+swapping to orange pause bars while paused.
 
 **Debug logging (Linux).** Off by default. `--debug` on the command line or
 `CLIPSYNC_DEBUG=1` in the environment. Output goes to stderr, which as a

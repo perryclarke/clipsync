@@ -71,10 +71,21 @@
     <InternalsVisibleTo Include="ClipSync.Linux.Tests" />
   </ItemGroup>
 
+  <!-- The tray icon SVGs, rendered at runtime via gdk-pixbuf and served
+       over the SNI IconPixmap property. Copied beside the binary so the
+       same relative path works for dotnet run and the .deb. -->
+  <ItemGroup>
+    <Content Include="icons/tray-*.svg" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="PeterO.Cbor" Version="4.5.5" />
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.95.0" />
+    <!-- GTK4 + libadwaita bindings for the app window. Managed P/Invoke
+         only: the build needs no native packages, the runtime needs
+         libgtk-4-1 and libadwaita-1-0 (in the Ubuntu default install). -->
+    <PackageReference Include="GirCore.Adw-1" Version="0.8.1" />
   </ItemGroup>
 
 </Project>
