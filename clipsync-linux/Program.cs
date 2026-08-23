@@ -76,9 +76,12 @@ public static class Program
 
         // Every action refreshes both UIs: the tray rebuild is cheap and
         // signature-guarded, and the window only repaints while visible.
+        var autostart = new Platform.Autostart();
+
         Action refreshUis = () => { tray.Rebuild(); window.Refresh(); };
         Func<TrayState> uiState = () => new TrayState(peers.GetAll(), pause.GlobalPaused,
-                                                      pause.IsMuted, settings.Hidden);
+                                                      pause.IsMuted, settings.Hidden,
+                                                      settings.Excluded);
         var uiActions = new TrayActions(
             SetPaused: p => { pause.GlobalPaused = p; refreshUis(); },
             Trust: did =>
@@ -92,10 +95,46 @@ public static class Program
             Hide: (did, name) => { settings.Hide(did, name); refreshUis(); },
             Unhide: did => { settings.Unhide(did); refreshUis(); },
             OpenWindow: window.Open,
-            Quit: () => shutdown.TrySetResult());
+            Quit: () => shutdown.TrySetResult(),
+            AddExclusion: wmClass =>
+            {
+                // Same shape as the console `exclude`: WM_CLASS stored as
+                // an Exe entry, see SelectionSource.
+                settings.Add(new AppIdentity(AppKind.Exe, wmClass, wmClass));
+                refreshUis();
+            },
+            RemoveExclusion: key =>
+            {
+                settings.Remove(new AppIdentity(AppKind.Exe, key, key));
+                refreshUis();
+            },
+            SetStartAtLogin: enabled =>
+            {
+                try { autostart.SetEnabled(enabled); }
+                catch (Exception ex) { Identity.Log($"Autostart: {ex.Message}"); }
+                refreshUis();
+            },
+            StartOver: () =>
+            {
+                Identity.Log("Settings: start over — clearing trust and settings, restarting");
+                trust.Clear();
+                settings.ResetAll();
+
+                // Restart rather than un-picking live state object by
+                // object, matching the other platforms: everything running
+                // was built on the trust just erased. Under systemd exit
+                // non-zero and let Restart=on-failure do it; elsewhere
+                // relaunch ourselves.
+                if (Environment.GetEnvironmentVariable("INVOCATION_ID") is not null)
+                    Environment.Exit(1);
+                if (Environment.ProcessPath is { } exe)
+                    System.Diagnostics.Process.Start(exe);
+                Environment.Exit(0);
+            });
 
         tray.Bind(uiState, uiActions);
-        window.Bind(uiState, uiActions, Environment.MachineName, identity.DidHex[..8]);
+        window.Bind(uiState, uiActions, autostart.IsEnabled,
+                    Environment.MachineName, identity.DidHex[..8]);
 
         peers.OnChange = list =>
         {

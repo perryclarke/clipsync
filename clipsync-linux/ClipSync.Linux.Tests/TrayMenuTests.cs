@@ -22,7 +22,7 @@ public class TrayMenuTests
         var menu = new TrayMenu();
         menu.Build(
             new TrayState(Array.Empty<Peer>(), paused, _ => false,
-                          Array.Empty<HiddenPeer>()),
+                          Array.Empty<HiddenPeer>(), Array.Empty<AppIdentity>()),
             new TrayActions(
                 SetPaused: setPaused ?? (_ => { }),
                 Trust: _ => { },
@@ -30,7 +30,11 @@ public class TrayMenuTests
                 Hide: (_, _) => { },
                 Unhide: _ => { },
                 OpenWindow: openWindow ?? (() => { }),
-                Quit: quit ?? (() => { })));
+                Quit: quit ?? (() => { }),
+                AddExclusion: _ => { },
+                RemoveExclusion: _ => { },
+                SetStartAtLogin: _ => { },
+                StartOver: () => { }));
         return menu;
     }
 

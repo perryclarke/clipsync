@@ -31,9 +31,11 @@ internal sealed record TrayState(
     IReadOnlyList<Peer> Peers,
     bool Paused,
     Func<string, bool> IsMuted,
-    IReadOnlyList<HiddenPeer> Hidden);
+    IReadOnlyList<HiddenPeer> Hidden,
+    IReadOnlyList<Settings.AppIdentity> Excluded);
 
-/// What the UIs can do.
+/// What the UIs can do. The menu uses the first few; the rest exist for
+/// the window's settings groups.
 internal sealed record TrayActions(
     Action<bool> SetPaused,
     Action<string> Trust,
@@ -41,7 +43,11 @@ internal sealed record TrayActions(
     Action<string, string> Hide,
     Action<string> Unhide,
     Action OpenWindow,
-    Action Quit);
+    Action Quit,
+    Action<string> AddExclusion,
+    Action<string> RemoveExclusion,
+    Action<bool> SetStartAtLogin,
+    Action StartOver);
 
 /// Builds the tray menu: the right-click fallback, not the primary UI.
 ///

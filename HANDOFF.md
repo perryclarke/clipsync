@@ -675,6 +675,29 @@ ceiling for a single left click on GNOME; keep the menu.
 **Still unverified:** double-click / middle-click opening the window
 (wired, not yet tried), the send switch and hide button in the window.
 
-**Still to build (stage 2 of the design doc):** excluded-apps editor in
-the window (console `exclude` remains the only UI), "Start ClipSync when
-you sign in", and "Start over".
+**Stage 2, built later the same day:** the window gained the settings
+groups. *Excluded apps*: rows with Remove plus a WM_CLASS entry field
+(no picker by design — `xprop WM_CLASS` is the discovery tool; Gir.Core
+0.8.1 does not bind Adw.EntryRow, so it is a plain Gtk.Entry, and its
+in-progress text survives the rebuilds that peer churn triggers).
+*"Start ClipSync when you sign in"*: `Platform/Autostart.cs` — the .deb
+installs a system-wide /etc/xdg/autostart entry, so OFF writes a
+`Hidden=true` override in ~/.config/autostart and ON removes it; with no
+system entry (dev runs) ON writes a real user entry pointing at the
+current binary. Unit-tested against temp dirs. *"Start over"*:
+Adw.AlertDialog with the other platforms' wording ("computer" for
+"PC"/"Mac"), then TrustStore.Clear + Settings.ResetAll + restart — under
+systemd by exiting non-zero (Restart=on-failure relaunches, detected via
+INVOCATION_ID), elsewhere by relaunching ProcessPath. 67 tests pass.
+Live verification of stage 2 pending: window presents with the new
+groups, but nothing has been clicked through yet.
+
+Two findings from first use of the settings groups: a rebuild snapped
+the scroll position back to the top (now carried across, restored at
+below-redraw idle priority — a value set before layout is clamped to 0),
+and **Linux now offers Hide on every device row, trusted included** —
+the mac and Windows UIs offer it only on pending peers ("the other verb
+an untrusted machine needs"), but a trusted machine can be worth
+delisting too and hiding stays display-only, so it keeps syncing. This
+is a deliberate parity deviation; consider mirroring it back to the
+other two.

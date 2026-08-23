@@ -22,10 +22,12 @@ public class WindowModelTests
     private static WindowContent Build(IReadOnlyList<Peer> peers,
                                        bool paused = false,
                                        Func<string, bool>? isMuted = null,
-                                       IReadOnlyList<HiddenPeer>? hidden = null)
+                                       IReadOnlyList<HiddenPeer>? hidden = null,
+                                       IReadOnlyList<AppIdentity>? excluded = null)
         => WindowModel.Build(
                new TrayState(peers, paused, isMuted ?? (_ => false),
-                             hidden ?? Array.Empty<HiddenPeer>()),
+                             hidden ?? Array.Empty<HiddenPeer>(),
+                             excluded ?? Array.Empty<AppIdentity>()),
                "penguin", "0a1b2c3d");
 
     /// The fingerprint is in the pending subtitle because eyeballing it
@@ -51,7 +53,8 @@ public class WindowModelTests
         var row = Assert.Single(Build([Online("b6bf89d9", "Kodachrome")]).Devices);
 
         Assert.False(row.OffersTrust);
-        Assert.False(row.OffersHide);
+        // Unlike the other platforms, trusted devices can be hidden too.
+        Assert.True(row.OffersHide);
         Assert.True(row.OffersSendSwitch);
         Assert.True(row.Sending);
         Assert.Equal("Online, 0.8.0", row.Subtitle);
@@ -121,5 +124,18 @@ public class WindowModelTests
     {
         Assert.Empty(Build([]).Devices);
         Assert.Equal("No devices found", WindowModel.NoDevices);
+    }
+
+    [Fact]
+    public void ExcludedApps_ListWithKeyAndDisplayName()
+    {
+        var content = Build([], excluded:
+            [new AppIdentity(AppKind.Exe, "org.keepassxc.KeePassXC", "KeePassXC")]);
+
+        var row = Assert.Single(content.Excluded);
+        // AppIdentity lowercases Exe keys so matching is case-insensitive;
+        // the display name keeps what the user typed.
+        Assert.Equal("org.keepassxc.keepassxc", row.Key);
+        Assert.Equal("KeePassXC", row.Title);
     }
 }

@@ -57,6 +57,11 @@ entries share one executable — a dozen share `cmd.exe` — they appear as a
 single row labelled "… (and 11 others)", because excluding one excludes
 all of them.
 
+*Linux:* ClipSync window → **Excluded apps**. There is no app picker;
+apps are matched by X11 `WM_CLASS`, typed in directly (find one with
+`xprop WM_CLASS` and a click on the window). See *Platform differences
+on Linux* for what this can and cannot match.
+
 ## Repository map
 
 - **PROTOCOL.md** — wire format and state machines (source of truth for
@@ -125,6 +130,13 @@ click, which is why the menu stays minimal and the window does the
 work.) Closing the window leaves the daemon running. The icon itself
 matches the other platforms — the clipboard glyph with a blue wifi badge,
 swapping to orange pause bars while paused.
+
+The window's **General** group holds "Start ClipSync when you sign in"
+(an XDG autostart entry; the .deb enables it system-wide, and the switch
+writes a per-user override) and **Start over**, which forgets every
+trusted device, hidden device, excluded app and paused peer, then
+restarts the daemon — same wording and behaviour as the other two
+platforms.
 
 **Debug logging (Linux).** Off by default. `--debug` on the command line or
 `CLIPSYNC_DEBUG=1` in the environment. Output goes to stderr, which as a

@@ -1,9 +1,10 @@
 # Linux app window — design
 
 Date: 2026-08-23
-Status: stage 1 implemented (window, tray rework, tests); stage 2
-(excluded apps, start-at-login, Start over) not started. Live click-through
-pending — see the 2026-08-23 handoff in `HANDOFF.md`.
+Status: implemented, both stages (window + tray rework, then excluded
+apps, start-at-login, Start over). Stage 1 verified live end-to-end;
+stage 2 click-through pending — see the 2026-08-23 handoff in
+`HANDOFF.md`.
 
 ## Summary
 

@@ -17,19 +17,24 @@ internal sealed class MainWindow
 
     private Func<TrayState>? _state;
     private TrayActions? _actions;
+    private Func<bool>? _startAtLogin;
     private string _deviceName = "";
     private string _fingerprint = "";
 
     // UI thread only.
     private Adw.ApplicationWindow? _window;
     private Gtk.Box? _groups;
+    private Gtk.ScrolledWindow? _scroll;
+    private Gtk.Entry? _excludeEntry;
     private bool _rebuilding;
 
     public void Bind(Func<TrayState> state, TrayActions actions,
+                     Func<bool> startAtLogin,
                      string deviceName, string fingerprint)
     {
         _state = state;
         _actions = actions;
+        _startAtLogin = startAtLogin;
         _deviceName = deviceName;
         _fingerprint = fingerprint;
     }
@@ -69,6 +74,7 @@ internal sealed class MainWindow
         var scroll = Gtk.ScrolledWindow.New();
         scroll.SetPolicy(Gtk.PolicyType.Never, Gtk.PolicyType.Automatic);
         scroll.SetChild(clamp);
+        _scroll = scroll;
 
         var view = Adw.ToolbarView.New();
         view.AddTopBar(Adw.HeaderBar.New());
@@ -89,6 +95,13 @@ internal sealed class MainWindow
     {
         var content = WindowModel.Build(_state!(), _deviceName, _fingerprint);
 
+        // A rebuild replaces every widget, which would wipe whatever is
+        // typed into the add-exclusion field and snap the scroll position
+        // back to the top — and peer churn rebuilds at arbitrary moments —
+        // so both are carried across.
+        var pendingExclusion = _excludeEntry?.GetText() ?? "";
+        var scrollOffset = _scroll?.GetVadjustment()?.GetValue() ?? 0;
+
         _rebuilding = true;
         try
         {
@@ -96,8 +109,22 @@ internal sealed class MainWindow
             _groups.Append(SyncingGroup(content));
             _groups.Append(DevicesGroup(content));
             if (content.Hidden.Count > 0) _groups.Append(HiddenGroup(content));
+            _groups.Append(ExcludedGroup(content, pendingExclusion));
+            _groups.Append(GeneralGroup());
         }
         finally { _rebuilding = false; }
+
+        if (scrollOffset > 0)
+        {
+            // Deferred at below-redraw priority: the adjustment's range is
+            // recalculated during layout, and a value set before that is
+            // clamped back to 0.
+            GLib.Functions.IdleAdd(200, () =>
+            {
+                _scroll?.GetVadjustment()?.SetValue(scrollOffset);
+                return false;
+            });
+        }
     }
 
     private Adw.PreferencesGroup SyncingGroup(WindowContent content)
@@ -190,6 +217,112 @@ internal sealed class MainWindow
         }
 
         return group;
+    }
+
+    private Adw.PreferencesGroup ExcludedGroup(WindowContent content, string pendingText)
+    {
+        var group = Adw.PreferencesGroup.New();
+        group.SetTitle(WindowModel.ExcludedTitle);
+        group.SetDescription(WindowModel.ExcludedDescription);
+
+        if (content.Excluded.Count == 0)
+        {
+            var empty = Adw.ActionRow.New();
+            empty.SetTitle(WindowModel.NoExclusions);
+            empty.SetSensitive(false);
+            group.Add(empty);
+        }
+
+        foreach (var app in content.Excluded)
+        {
+            var row = Adw.ActionRow.New();
+            row.SetUseMarkup(false);
+            row.SetTitle(app.Title);
+
+            var remove = Gtk.Button.NewFromIconName("user-trash-symbolic");
+            remove.AddCssClass("flat");
+            remove.SetValign(Gtk.Align.Center);
+            remove.SetTooltipText(WindowModel.RemoveTooltip);
+            var key = app.Key;
+            remove.OnClicked += (_, _) => _actions!.RemoveExclusion(key);
+            row.AddSuffix(remove);
+
+            group.Add(row);
+        }
+
+        // A plain entry rather than Adw.EntryRow, which Gir.Core 0.8.1
+        // does not bind. There is no app picker on purpose: exclusions are
+        // keyed on WM_CLASS (see the design doc), and `xprop WM_CLASS` is
+        // the discovery tool.
+        var entry = Gtk.Entry.New();
+        entry.SetPlaceholderText(WindowModel.ExcludePlaceholder);
+        entry.SetText(pendingText);
+        entry.SetHexpand(true);
+        _excludeEntry = entry;
+
+        var add = Gtk.Button.NewWithLabel(WindowModel.AddLabel);
+        void Submit()
+        {
+            var wmClass = entry.GetText().Trim();
+            if (wmClass.Length == 0) return;
+            _excludeEntry = null;              // adding clears the field
+            _actions!.AddExclusion(wmClass);
+        }
+        add.OnClicked += (_, _) => Submit();
+        entry.OnActivate += (_, _) => Submit();
+
+        var addBox = Gtk.Box.New(Gtk.Orientation.Horizontal, 0);
+        addBox.AddCssClass("linked");
+        addBox.SetMarginTop(6);
+        addBox.Append(entry);
+        addBox.Append(add);
+        group.Add(addBox);
+
+        return group;
+    }
+
+    private Adw.PreferencesGroup GeneralGroup()
+    {
+        var group = Adw.PreferencesGroup.New();
+        group.SetTitle(WindowModel.GeneralTitle);
+
+        var login = Adw.SwitchRow.New();
+        login.SetTitle(WindowModel.LoginTitle);
+        login.SetActive(_startAtLogin!());
+        login.OnNotify += (_, args) =>
+        {
+            if (_rebuilding || args.Pspec.GetName() != "active") return;
+            _actions!.SetStartAtLogin(login.GetActive());
+        };
+        group.Add(login);
+
+        var reset = Adw.ActionRow.New();
+        reset.SetTitle(WindowModel.StartOverLabel);
+        var button = Gtk.Button.NewWithLabel(WindowModel.StartOverConfirm);
+        button.AddCssClass("destructive-action");
+        button.SetValign(Gtk.Align.Center);
+        button.OnClicked += (_, _) => ConfirmStartOver();
+        reset.AddSuffix(button);
+        reset.SetActivatableWidget(button);
+        group.Add(reset);
+
+        return group;
+    }
+
+    private void ConfirmStartOver()
+    {
+        var dialog = Adw.AlertDialog.New(WindowModel.StartOverHeading,
+                                         WindowModel.StartOverBody);
+        dialog.AddResponse("cancel", WindowModel.CancelLabel);
+        dialog.AddResponse("reset", WindowModel.StartOverConfirm);
+        dialog.SetResponseAppearance("reset", Adw.ResponseAppearance.Destructive);
+        dialog.SetDefaultResponse("cancel");
+        dialog.SetCloseResponse("cancel");
+        dialog.OnResponse += (_, args) =>
+        {
+            if (args.Response == "reset") _actions!.StartOver();
+        };
+        dialog.Present(_window);
     }
 
     private Adw.PreferencesGroup HiddenGroup(WindowContent content)
