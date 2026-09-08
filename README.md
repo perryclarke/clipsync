@@ -188,7 +188,7 @@ over XWayland, because Mutter advertises no `ext-data-control-v1`. See
 Discovery, mTLS transport, CBOR framing, clipboard watchers and writers
 with loop suppression, trust-store persistence, pause/resume, excluded
 apps, and the menu-bar / tray UI are in place and internally consistent
-across both codebases.
+across all three codebases.
 
 Trust is two-sided TOFU (see `HANDOFF.md`, *Trust flow*): a newly
 discovered peer shows as untrusted with a **Trust** button; clicking it
