@@ -114,6 +114,15 @@ daemon behind it (`peers`, `trust <did>`, `pause`, `status`; `--self-test`
 exercises the clipboard round trip). Requires `avahi-daemon` and an X or
 XWayland display.
 
+**Running it from a shell.** `clipsync` starts the daemon in the
+background and hands the prompt straight back, printing the pid and where
+it is logging. A second `clipsync` does not start a rival daemon: it opens
+the running one's window and exits. `clipsync --foreground` (`-f`) instead
+runs it right there, with the console harness on stdin. The background
+copy is chosen only when a terminal is actually attached, so the systemd
+unit and the autostart entry, which have none, keep running the daemon in
+the process they started.
+
 The tray icon needs a StatusNotifierItem host. On GNOME that is the
 AppIndicator extension — `gnome-extensions enable
 ubuntu-appindicators@ubuntu.com`. Without one the daemon syncs normally and
@@ -140,7 +149,10 @@ platforms.
 
 **Debug logging (Linux).** Off by default. `--debug` on the command line or
 `CLIPSYNC_DEBUG=1` in the environment. Output goes to stderr, which as a
-service means `journalctl --user -u clipsync`.
+service means `journalctl --user -u clipsync`. A daemon backgrounded from
+a shell has no stderr to read, so it writes to
+`~/.local/share/ClipSync/clipsync.log` instead — truncated at each launch,
+since the journal already keeps the history for the service.
 
 **Debug logging (Windows).** Off by default. Turn it on with `--debug`
 (also `-d` / `/debug`) on the command line, `CLIPSYNC_DEBUG=1` in the

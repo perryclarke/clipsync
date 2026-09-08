@@ -701,3 +701,63 @@ an untrusted machine needs"), but a trusted machine can be worth
 delisting too and hiding stays display-only, so it keeps syncing. This
 is a deliberate parity deviation; consider mirroring it back to the
 other two.
+
+## Handoff 2026-09-08 — `clipsync` backgrounds itself from a shell
+
+Linux only; no protocol, settings-schema, or mac/Windows changes. There is
+nothing to mirror: the Windows client is a WinUI tray app and the Mac one
+an app bundle, so neither has a shell invocation that could block a prompt.
+
+**What changed.** Typing `clipsync` at a prompt now starts the daemon in
+the background and returns, printing the pid and the log path.
+`--foreground` (`-f`) keeps the old behaviour, console harness and all.
+A second `clipsync` no longer starts a rival daemon; it opens the running
+one's window and exits 0.
+
+**The rule for which mode.** Background only when stdin is a terminal.
+systemd's `Type=simple` unit and the XDG autostart entry both run without
+one, so both keep the daemon in the process they started, and neither file
+needed changing. `--self-test` and `--identity-only` print and exit, so
+they are never backgrounded. `LaunchPlan` holds this as a pure function
+with unit tests; everything below needed a live session and was checked by
+hand.
+
+**setsid(1), not setsid(2).** The first cut called `setsid()` from inside
+the re-exec'd child and the daemon died a few hundred milliseconds after
+the prompt came back — reliably, but only when launched from a real
+terminal, which is why it survived the first round of testing. The CLR
+takes long enough to start that the terminal is usually gone, and its
+SIGHUP delivered, before `Main` runs. The child is now spawned through
+`setsid(1)`, which makes the new session *before* exec and closes the
+window; it execs in place rather than forking when the caller is not a
+process group leader, so the pid printed to the user is the daemon's own.
+`util-linux` is now declared in the .deb's `Depends` for it (it is
+`Essential: yes`, so this is documentation rather than a new requirement).
+The in-process `setsid()` remains as the fallback for a system without the
+binary, where the race is still theoretically possible.
+
+**The guard runs in the parent.** It first ran in the backgrounded child,
+which was wrong in a way worth recording: the child had already detached
+and truncated the running daemon's log by the time it discovered the
+clash, so it printed "already running" into the log file rather than onto
+the terminal waiting for it, and the user saw nothing. The parent now
+probes before spawning.
+
+Ownership of `org.clipsync.ClipSync` on the session bus is the guard —
+atomic, and released when the owner dies, so there is no stale-pidfile
+case. With no session bus the guard is skipped and the daemon runs, the
+same posture as a missing tray host. `Adw.Application` stays `NonUnique`;
+the guard sits above GTK, so the reasoning at `UiThread.cs:66` is
+unchanged.
+
+**Verified live** on Ubuntu under GNOME/XWayland: backgrounding from a pty
+(daemon survives teardown, `SESS == PGID == PID`, no controlling
+terminal), the log redirect, bus-name ownership, the second-launch guard
+(message on the terminal, log not truncated, exactly one daemon), and the
+no-terminal path staying in foreground. **Not verified:** that the window
+visually appears on the second launch — the D-Bus call returns success,
+which proves the handler ran and invoked `OnOpen`, but nothing confirms
+what was drawn.
+
+**Note for whoever packages next.** `dist/clipsync_0.8.0_amd64.deb` and
+any installed copy predate all of this.

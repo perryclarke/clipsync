@@ -59,7 +59,7 @@ Version: $VERSION
 Section: utils
 Priority: optional
 Architecture: $ARCH
-Depends: libx11-6, libxfixes3, libxcb1, libxcb-xfixes0, avahi-daemon, dbus, libgtk-4-1, libadwaita-1-0
+Depends: libx11-6, libxfixes3, libxcb1, libxcb-xfixes0, avahi-daemon, dbus, libgtk-4-1, libadwaita-1-0, util-linux
 Recommends: gnome-shell-extension-appindicator
 Installed-Size: $INSTALLED_KB
 Maintainer: ClipSync

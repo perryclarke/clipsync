@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ClipSync.Clipboard;
 using ClipSync.Net;
+using ClipSync.Platform;
 using ClipSync.Platform.Backends.X11;
 using ClipSync.Security;
 using ClipSync.Settings;
@@ -24,11 +25,60 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        // First, before anything writes a line: a spawned copy has to move
+        // its descriptors onto the log, or the banner lands on the terminal
+        // it was supposed to have let go of.
+        if (Daemonize.WasSpawned) Daemonize.DetachFromTerminal();
+
+        if (LaunchPlan.Decide(args, stdinIsTerminal: !Console.IsInputRedirected)
+            == LaunchMode.Background)
+        {
+            // Ask before spawning, not after. A child that discovers the
+            // clash has already detached — it would have truncated the
+            // running daemon's log and printed this line into the file
+            // rather than onto the terminal that is waiting for it.
+            await using (var running = new SingleInstance())
+            {
+                if (await running.TryOpenRunningAsync())
+                {
+                    Console.WriteLine("ClipSync is already running — opened its window.");
+                    return 0;
+                }
+            }
+
+            if (Daemonize.Spawn(args) is { } pid)
+            {
+                Console.WriteLine($"ClipSync is running in the background (pid {pid}).");
+                Console.WriteLine($"  log       {Daemonize.LogPath}");
+                Console.WriteLine($"  stop      kill {pid}");
+                Console.WriteLine($"  run here  clipsync --foreground");
+                return 0;
+            }
+            Console.Error.WriteLine("could not spawn a background copy — staying in the foreground");
+        }
+
         if (args.Contains("--debug") || args.Contains("-d")) Identity.EnableLogging();
 
         // Core's logging seam: route the linked files' diagnostics through
         // the same opt-in sink as everything else.
         Log.Sink = Identity.Log;
+
+        // Before --reset, which would otherwise clear the trust store out
+        // from under a daemon that is already running on it.
+        SingleInstance? instance = null;
+        if (!LaunchPlan.IsOneShot(args))
+        {
+            instance = new SingleInstance();
+            if (!await instance.TryAcquireAsync())
+            {
+                // Only reachable by racing another launch, or by running
+                // --foreground alongside a daemon that is already up.
+                Console.WriteLine("ClipSync is already running — opening its window.");
+                await instance.TryOpenRunningAsync();
+                await instance.DisposeAsync();
+                return 0;
+            }
+        }
 
         // --reset runs before the identity is loaded, matching the other two
         // clients: it must take effect immediately at launch, and before the
@@ -132,6 +182,9 @@ public static class Program
                 Environment.Exit(0);
             });
 
+        // A second `clipsync` reaches the window through here.
+        if (instance is not null) instance.OnOpen = window.Open;
+
         tray.Bind(uiState, uiActions);
         window.Bind(uiState, uiActions, autostart.IsEnabled,
                     Environment.MachineName, identity.DidHex[..8]);
@@ -213,6 +266,8 @@ public static class Program
             await Task.WhenAny(ConsoleLoop(discovery, peers, trust, pause, settings, window.Open),
                                shutdown.Task);
         }
+
+        if (instance is not null) await instance.DisposeAsync();
         return 0;
     }
 
