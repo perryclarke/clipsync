@@ -7,6 +7,51 @@ one (macOS 15 Clipboard History / Win+V; Linux has no equivalent — see
 *Platform differences on Linux*). Current release: **0.8.0** on all three,
 kept in step because they share a wire protocol and a settings schema.
 
+## Installation
+
+Download the installer for your platform from the
+[releases page](https://github.com/perryclarke/clipsync/releases). Install
+the same release everywhere: the clients are versioned together, though
+what actually decides compatibility is the protocol's `caps` field rather
+than the version number.
+
+**macOS 15+.** Open `ClipSync.dmg` and drag ClipSync to Applications. The
+build is signed with an Apple Development certificate but not notarized,
+so the first launch needs right-click then *Open* rather than a
+double-click. Leave it in /Applications; the "Open ClipSync at login"
+toggle needs it there to work.
+
+**Windows 11 25H2+.** Run `ClipSync.msi`. It installs per user and
+upgrades an existing 0.6.x or 0.7.x in place, closing and relaunching a
+running ClipSync by itself. It is signed with a self-signed certificate
+that Windows will not validate, so expect an unknown-publisher warning;
+the MSI installs regardless. The matching public certificate is not a
+release asset (`build-msi.ps1` writes it to `dist/clipsync-codesign.cer`
+when you build), so making the signature validate means building the MSI
+yourself and importing that file into *Trusted Root Certification
+Authorities* and *Trusted Publishers*.
+
+**Ubuntu 26.04+.** Install with `sudo apt install
+./clipsync_0.8.0_amd64.deb` rather than `dpkg -i`, so the dependencies
+resolve. Files land in `/opt/clipsync` with a `/usr/bin/clipsync`
+symlink, alongside a `systemd --user` unit and an autostart entry, and
+the daemon starts at your next login; `systemctl --user daemon-reload &&
+systemctl --user start clipsync` starts it without logging out. The tray
+icon additionally needs a StatusNotifierItem host, which on GNOME means
+the AppIndicator extension (`gnome-extensions enable
+ubuntu-appindicators@ubuntu.com`); without one the daemon syncs normally
+and simply has no icon. Only amd64 is published: `build-deb.sh arm64`
+produces an arm64 package, but it has never been run on arm64 hardware.
+See *Platform differences on Linux* for the three ways Linux behaves
+differently from the other two.
+
+**Then pair them.** Trust is two-sided. On each machine, open ClipSync
+and click **Trust** on the other; the first side's connection keeps
+failing until the second side trusts too. After that both remember each
+other and reconnect on their own.
+
+To build from source instead, see *Building* below.
+
 ## Features
 
 All three clients behave the same way; only the UI chrome differs, plus
