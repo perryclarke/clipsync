@@ -83,7 +83,7 @@ internal sealed class TrayMenu
 
         root.Children.Add(New(new MenuItem
         {
-            Label = "Open ClipSync",
+            Label = "Settings…",
             Activate = actions.OpenWindow,
         }));
 

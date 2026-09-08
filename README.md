@@ -122,7 +122,7 @@ simply has no icon, and says so at startup.
 The UI is the ClipSync window (GTK4 / libadwaita): the device list with
 **Trust** buttons for new peers, a per-device send switch, hide/show,
 and the global **Pause Syncing** switch. Clicking the icon shows a
-three-item menu — **Open ClipSync**, Pause, Quit — and double-click or
+three-item menu — **Settings…**, Pause, Quit — and double-click or
 middle-click opens the window directly. (GNOME's AppIndicator extension
 never routes a single click to the window while a menu is attached, and
 a StatusNotifierItem menu can only be a flat list that closes on every

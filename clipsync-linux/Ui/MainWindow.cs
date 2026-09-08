@@ -81,7 +81,7 @@ internal sealed class MainWindow
         view.SetContent(scroll);
 
         var window = Adw.ApplicationWindow.New(_ui.Application!);
-        window.SetTitle("ClipSync");
+        window.SetTitle("ClipSync Settings");
         window.SetDefaultSize(420, 540);
         window.SetHideOnClose(true);
         window.SetContent(view);

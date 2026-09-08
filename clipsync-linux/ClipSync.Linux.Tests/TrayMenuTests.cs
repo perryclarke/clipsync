@@ -46,8 +46,8 @@ public class TrayMenuTests
     /// pauses, and quits. Anything more belongs in the window — dbusmenu
     /// renders as a flat list that closes on every click.
     [Fact]
-    public void MenuIsExactlyOpenPauseQuit()
-        => Assert.Equal(new[] { "Open ClipSync", "Pause Syncing", "Quit ClipSync" },
+    public void MenuIsExactlySettingsPauseQuit()
+        => Assert.Equal(new[] { "Settings…", "Pause Syncing", "Quit ClipSync" },
                         Labels(Build()));
 
     [Fact]
@@ -68,16 +68,16 @@ public class TrayMenuTests
         Assert.True(requested);
     }
 
-    /// Open is first: it is the entry a host that never routes Activate
+    /// Settings is first: it is the entry a host that never routes Activate
     /// leaves as the only way into the window.
     [Fact]
-    public void OpenIsFirst_AndOpensTheWindow()
+    public void SettingsIsFirst_AndOpensTheWindow()
     {
         var opened = false;
         var menu = Build(openWindow: () => opened = true);
 
         var first = menu.Root.Children[0];
-        Assert.Equal("Open ClipSync", first.Label);
+        Assert.Equal("Settings…", first.Label);
         first.Activate!();
 
         Assert.True(opened);
