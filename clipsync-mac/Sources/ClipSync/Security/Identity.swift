@@ -95,7 +95,7 @@ final class Identity {
             ]
             if SecItemDelete(del as CFDictionary) == errSecSuccess { removed += 1 }
         }
-        if removed > 0 { NSLog("pruned \(removed) stale certificate(s)") }
+        if removed > 0 { Log.write("pruned \(removed) stale certificate(s)") }
     }
 
     /// Give every keychain item backing the device identity a friendly,
@@ -134,9 +134,9 @@ final class Identity {
         let update: [String: Any] = [kSecAttrLabel as String: keyDisplayLabel]
         let s = SecItemUpdate(match as CFDictionary, update as CFDictionary)
         if s == errSecSuccess {
-            NSLog("set label on \(account) to \"\(keyDisplayLabel)\"")
+            Log.write("set label on \(account) to \"\(keyDisplayLabel)\"")
         } else if s != errSecItemNotFound {
-            NSLog("label update for \(account) failed: \(s)")
+            Log.write("label update for \(account) failed: \(s)")
         }
     }
 
@@ -165,9 +165,9 @@ final class Identity {
         let update: [String: Any] = [kSecAttrLabel as String: keyDisplayLabel]
         let s = SecItemUpdate(match as CFDictionary, update as CFDictionary)
         if s == errSecSuccess {
-            NSLog("set signing key label to \"\(keyDisplayLabel)\"")
+            Log.write("set signing key label to \"\(keyDisplayLabel)\"")
         } else {
-            NSLog("ensureKeyLabel update failed: \(s)")
+            Log.write("ensureKeyLabel update failed: \(s)")
         }
     }
 
@@ -206,7 +206,7 @@ final class Identity {
             var id: SecIdentity?
             let s = SecIdentityCreateWithCertificate(nil, cert, &id)
             if s == errSecSuccess, let id { return (id, cert) }
-            NSLog("SecIdentityCreateWithCertificate from stashed DER failed: \(s)")
+            Log.write("SecIdentityCreateWithCertificate from stashed DER failed: \(s)")
         }
 
         // Path 1: direct identity lookup by label.
@@ -223,7 +223,7 @@ final class Identity {
             SecIdentityCopyCertificate(identity, &cert)
             if let c = cert { return (identity, c) }
         }
-        NSLog("identity-by-label lookup failed: \(s1)")
+        Log.write("identity-by-label lookup failed: \(s1)")
 
         // Path 2: find our cert by label, then resolve an identity from it.
         // The permanent key is keyed by applicationTag — as long as both are
@@ -240,9 +240,9 @@ final class Identity {
             var id: SecIdentity?
             let s3 = SecIdentityCreateWithCertificate(nil, cert, &id)
             if s3 == errSecSuccess, let id { return (id, cert) }
-            NSLog("SecIdentityCreateWithCertificate from stored cert failed: \(s3)")
+            Log.write("SecIdentityCreateWithCertificate from stored cert failed: \(s3)")
         } else {
-            NSLog("cert-by-label lookup failed: \(s2)")
+            Log.write("cert-by-label lookup failed: \(s2)")
         }
         return nil
     }
@@ -273,7 +273,7 @@ final class Identity {
         SecItemDelete(add as CFDictionary)
         let s = SecItemAdd(add as CFDictionary, nil)
         if s != errSecSuccess {
-            NSLog("storeCertDER failed: \(s)")
+            Log.write("storeCertDER failed: \(s)")
         }
     }
 
@@ -434,7 +434,7 @@ final class Identity {
         ]
         let certStatus = SecItemAdd(certAdd as CFDictionary, nil)
         if certStatus != errSecSuccess && certStatus != errSecDuplicateItem {
-            NSLog("SecItemAdd(cert) warning: \(certStatus)")
+            Log.write("SecItemAdd(cert) warning: \(certStatus)")
         }
 
         // 8. Resolve a SecIdentity binding this cert to the permanent key.

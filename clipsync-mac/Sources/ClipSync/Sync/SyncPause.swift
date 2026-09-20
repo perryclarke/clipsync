@@ -37,7 +37,7 @@ final class SyncPause {
             _globalPaused = newValue
             lock.unlock()
             guard changed else { return }
-            NSLog("SyncPause: global pause %@", newValue ? "on" : "off")
+            Log.write("SyncPause: global pause %@", newValue ? "on" : "off")
             onChange?()
         }
     }
@@ -52,7 +52,7 @@ final class SyncPause {
         // Re-read rather than trusting the call: a blank DID is ignored by
         // the store, and firing onChange for a no-op would be a lie.
         guard isMuted(didHex) == muted else { return }
-        NSLog("SyncPause: peer %@ %@", String(didHex.prefix(8)), muted ? "muted" : "unmuted")
+        Log.write("SyncPause: peer %@ %@", String(didHex.prefix(8)), muted ? "muted" : "unmuted")
         onChange?()
     }
 

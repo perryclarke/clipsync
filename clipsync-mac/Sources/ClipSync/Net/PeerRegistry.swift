@@ -163,10 +163,10 @@ final class PeerRegistry {
             // line is indistinguishable from the item never reaching this
             // method.
             if let gate = shouldSendTo, !gate(hex) {
-                NSLog("Broadcast: not sending to %@ (paused)", String(hex.prefix(8)))
+                Log.write("Broadcast: not sending to %@ (paused)", String(hex.prefix(8)))
                 continue
             }
-            NSLog("Broadcast: sending to %@", String(hex.prefix(8)))
+            Log.write("Broadcast: sending to %@", String(hex.prefix(8)))
             pc.send(item: item)
         }
     }

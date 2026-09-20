@@ -81,7 +81,7 @@ final class AppSettings {
                 }
             } catch {
                 // Corrupt or unreadable: start empty rather than crashing.
-                NSLog("AppSettings: could not read %@: %@; using defaults",
+                Log.write("AppSettings: could not read %@: %@; using defaults",
                       url.path, String(describing: error))
                 excluded = []
                 paused = []
@@ -230,7 +230,7 @@ final class AppSettings {
             try data.write(to: url, options: .atomic)
         } catch {
             // In-memory state keeps working for this session.
-            NSLog("AppSettings: could not write %@: %@", url.path, String(describing: error))
+            Log.write("AppSettings: could not write %@: %@", url.path, String(describing: error))
         }
     }
 

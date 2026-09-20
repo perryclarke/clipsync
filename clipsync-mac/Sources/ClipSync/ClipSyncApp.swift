@@ -60,6 +60,13 @@ final class AppCoordinator: ObservableObject {
         // can block on a keychain prompt — so the reset fires immediately at
         // launch and before the store is loaded into memory below. This
         // mirrors Windows, where reset runs before Application.Start.
+        // Before anything else logs, so `--debug` catches the whole launch.
+        // Matches Windows' Program.Main, which enables logging first too.
+        if CommandLine.arguments.contains("--debug")
+            || CommandLine.arguments.contains("-d") {
+            Log.enableForThisRun()
+            Log.write("Log: debug logging enabled via command line")
+        }
         if CommandLine.arguments.contains("--reset") {
             TrustStore.reset()
         }
@@ -96,6 +103,7 @@ final class AppCoordinator: ObservableObject {
         refreshPauseState()
         excludedApps = settings.excluded
         hiddenPeers = settings.hidden
+        debugLogging = Log.isEnabled
 
         foreground.start()
         watcher.start()
@@ -156,9 +164,28 @@ final class AppCoordinator: ObservableObject {
             if on { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
         } catch {
-            NSLog("open-at-login %@ failed: %@", on ? "register" : "unregister",
+            Log.write("open-at-login %@ failed: %@", on ? "register" : "unregister",
                   String(describing: error))
         }
+    }
+
+    // MARK: Debug logging
+
+    /// Mirrors of Log's state, republished so the Debug section redraws.
+    /// The source of truth stays in Log (and its marker file).
+    @Published var debugLogging = false
+
+    var logFileURL: URL { Log.fileURL }
+    var logFileExists: Bool { FileManager.default.fileExists(atPath: Log.fileURL.path) }
+
+    func setDebugLogging(_ on: Bool) {
+        Log.setEnabled(on)
+        debugLogging = Log.isEnabled
+    }
+
+    func openLogFile() {
+        guard logFileExists else { return }
+        NSWorkspace.shared.open(Log.fileURL)
     }
 
     // MARK: Start over
@@ -170,7 +197,7 @@ final class AppCoordinator: ObservableObject {
     /// connection were built on the trust just erased, and a fresh
     /// process is the one way to be sure nothing remembers it.
     func startOver() {
-        NSLog("start over: clearing trust and settings, relaunching")
+        Log.write("start over: clearing trust and settings, relaunching")
         trustStore.clear()
         settings.resetAll()
 

@@ -74,7 +74,7 @@ final class TrustStore {
     /// loaded into memory. Used by the `--reset` command-line switch.
     static func reset() {
         load().clear()
-        NSLog("--reset cleared trusted peers")
+        Log.write("--reset cleared trusted peers")
     }
 
     func all() -> [Entry] {

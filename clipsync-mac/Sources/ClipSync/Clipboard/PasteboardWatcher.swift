@@ -31,7 +31,7 @@ final class PasteboardWatcher {
         // stance once at startup: if reads are denied, every copy would
         // otherwise vanish with no line saying why.
         if #available(macOS 15.4, *) {
-            NSLog("PasteboardWatcher: pasteboard access behavior = %d",
+            Log.write("PasteboardWatcher: pasteboard access behavior = %d",
                   pasteboard.accessBehavior.rawValue)
         }
         lastTick = Date()
@@ -64,7 +64,7 @@ final class PasteboardWatcher {
             // A change with nothing readable is worth one line: without it,
             // a denied pasteboard read is indistinguishable from no copy
             // ever happening.
-            NSLog("PasteboardWatcher: change #%d had no readable formats", current)
+            Log.write("PasteboardWatcher: change #%d had no readable formats", current)
             return
         }
 
@@ -81,11 +81,11 @@ final class PasteboardWatcher {
         let decision = SuppressionPolicy.decide(ring: foreground, settings: settings,
                                                 windowStart: windowStart, windowEnd: now)
         if decision.suppress {
-            NSLog("PasteboardWatcher: suppressed item from %@ (%d formats)",
+            Log.write("PasteboardWatcher: suppressed item from %@ (%d formats)",
                   decision.source?.displayName ?? "?", item.formats.count)
             return
         }
-        NSLog("PasteboardWatcher: sending item (%d formats)", item.formats.count)
+        Log.write("PasteboardWatcher: sending item (%d formats)", item.formats.count)
 
         onLocalCopy?(item)
     }

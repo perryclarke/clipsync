@@ -45,7 +45,7 @@ final class Discovery {
     }
 
     private func log(_ s: String) {
-        NSLog("%@", s)
+        Log.write("%@", s)
         onLog?(s)
     }
 
