@@ -6,7 +6,7 @@
     <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
     <RootNamespace>ClipSync</RootNamespace>
     <AssemblyName>clipsync</AssemblyName>
-    <Version>0.8.0</Version>
+    <Version>0.8.1</Version>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>
