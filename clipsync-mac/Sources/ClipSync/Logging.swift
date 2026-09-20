@@ -54,6 +54,11 @@ enum Log {
     /// it takes effect immediately, and writes/removes the marker so it
     /// survives a relaunch — the two halves the Settings toggle needs.
     static func setEnabled(_ on: Bool) {
+        // Say we are stopping while the file sink is still open. Flipping
+        // first would end the log mid-sentence, which reads exactly like a
+        // crash to whoever opens it later.
+        if !on { write("Log: file logging off") }
+
         lock.lock()
         enabled = on
         lock.unlock()
@@ -75,7 +80,7 @@ enum Log {
             write("Log: could not \(on ? "create" : "remove") the marker: \(error)")
             return
         }
-        write("Log: file logging \(on ? "on" : "off")")
+        if on { write("Log: file logging on") }
     }
 
     /// One diagnostic line: always to stderr, and to the log file when

@@ -59,6 +59,15 @@ final class LoggingTests: XCTestCase {
         XCTAssertFalse(text.contains("after"), "no lines once the toggle is off")
     }
 
+    /// A log that simply stops is ambiguous between "switched off" and
+    /// "crashed". The closing line has to land while the sink is still open.
+    func testDisablingSaysSoInTheLogBeforeItStops() {
+        Log.setEnabled(true)
+        Log.setEnabled(false)
+        XCTAssertTrue(logContents().contains("Log: file logging off"),
+                      "the log must record why it ends")
+    }
+
     /// The marker alone turns logging on at the next launch — the mechanism
     /// Windows uses, and what makes the toggle survive a restart.
     func testMarkerFileAloneEnablesOnAFreshLaunch() {
