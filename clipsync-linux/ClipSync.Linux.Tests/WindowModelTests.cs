@@ -138,4 +138,25 @@ public class WindowModelTests
         Assert.Equal("org.keepassxc.keepassxc", row.Key);
         Assert.Equal("KeePassXC", row.Title);
     }
+
+    /// The command has to be the one that actually reads this daemon's
+    /// output: it is copied verbatim and pasted into a terminal, so a stale
+    /// unit name here is a dead end for whoever is debugging.
+    [Fact]
+    public void DebugSection_OffersTheJournalCommandForTheUserUnit()
+    {
+        Assert.Equal("journalctl --user -u clipsync -f", WindowModel.DebugLogCommand);
+        Assert.Equal("Debug", WindowModel.DebugTitle);
+        Assert.Equal("Debug logging", WindowModel.DebugLoggingTitle);
+    }
+
+    /// The promise that makes a log safe to hand to someone. If this stops
+    /// being true, what gets logged needs re-checking, not just the wording.
+    [Fact]
+    public void DebugSection_PromisesMetadataOnly()
+    {
+        Assert.Contains("Never includes what you copied", WindowModel.DebugLoggingSubtitle);
+        // No file to open on Linux — the journal is the log.
+        Assert.Contains("journal", WindowModel.DebugLogSubtitle);
+    }
 }

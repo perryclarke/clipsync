@@ -61,6 +61,10 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <!-- 10-12: Debug header, logging toggle, log file -->
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Text="General"
@@ -229,12 +233,19 @@
                 </controls:SettingsExpander.HeaderIcon>
             </controls:SettingsExpander>
 
-            <TextBlock Grid.Row="8" Text="Reset"
+            <!-- Reset and Debug both appear only when Settings was opened
+                 with Alt held. They are what you go looking for when
+                 something is wrong, and "Start over" is the most
+                 destructive control in the app — not something to meet
+                 while browsing ordinary settings. -->
+            <TextBlock Grid.Row="8" Text="Reset" x:Name="ResetHeader"
+                       Visibility="Collapsed"
                        Style="{StaticResource BodyStrongTextBlockStyle}"
                        Margin="0,16,0,8"
                        AutomationProperties.HeadingLevel="Level1"/>
 
-            <controls:SettingsCard Grid.Row="9"
+            <controls:SettingsCard Grid.Row="9" x:Name="ResetCard"
+                    Visibility="Collapsed"
                     Header="Start over"
                     Description="Forget trusted devices, hidden devices, excluded apps and paused peers, then restart ClipSync as it was when first installed.">
                 <controls:SettingsCard.HeaderIcon>
@@ -242,6 +253,38 @@
                 </controls:SettingsCard.HeaderIcon>
                 <Button Content="Start over…" Click="OnReset"
                         AutomationProperties.Name="Start over: forget all settings and trusted devices"/>
+            </controls:SettingsCard>
+
+            <TextBlock Grid.Row="10" Text="Debug" x:Name="DebugHeader"
+                       Visibility="Collapsed"
+                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                       Margin="0,16,0,8"
+                       AutomationProperties.HeadingLevel="Level1"/>
+
+            <controls:SettingsCard Grid.Row="11" x:Name="DebugLoggingCard"
+                    Visibility="Collapsed"
+                    Header="Debug logging"
+                    Description="Records network and protocol activity to a file. Never includes what you copied, or key material.">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE9D9;"/>
+                </controls:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="DebugLoggingToggle"
+                              Toggled="OnDebugLoggingToggled"
+                              AutomationProperties.Name="Debug logging"/>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard Grid.Row="12" x:Name="DebugLogCard"
+                    Visibility="Collapsed"
+                    Header="Log file">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE8A5;"/>
+                </controls:SettingsCard.HeaderIcon>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="OpenLogButton" Content="Open log" Click="OnOpenLog"
+                            AutomationProperties.Name="Open the debug log"/>
+                    <Button x:Name="ShowLogButton" Content="Show in folder" Click="OnShowLog"
+                            AutomationProperties.Name="Show the debug log in File Explorer"/>
+                </StackPanel>
             </controls:SettingsCard>
         </Grid>
         </ScrollViewer>

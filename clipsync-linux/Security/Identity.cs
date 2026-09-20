@@ -134,6 +134,49 @@ public sealed class Identity
     /// Called from Program.Main when `--debug` is passed.
     internal static void EnableLogging() => _logEnabled = true;
 
+    /// Is diagnostic logging on? Resolves the env var and marker file the
+    /// same way Log does, so the settings toggle shows the real state.
+    internal static bool LoggingEnabled
+    {
+        get
+        {
+            _logEnabled ??= Environment.GetEnvironmentVariable("CLIPSYNC_DEBUG") == "1"
+                            || File.Exists(MarkerPath);
+            return _logEnabled == true;
+        }
+    }
+
+    internal static string MarkerPath =>
+        Path.Combine(FilePermissionStore.DefaultDirectory, "debug-enabled");
+
+    /// Turn diagnostic logging on or off from the settings window. Flips the
+    /// in-memory flag so it takes effect immediately, and writes/removes the
+    /// marker so it survives a restart of the daemon.
+    internal static void SetLoggingEnabled(bool on)
+    {
+        _logEnabled = on;
+        try
+        {
+            if (on)
+            {
+                Directory.CreateDirectory(FilePermissionStore.DefaultDirectory);
+                if (!File.Exists(MarkerPath)) File.WriteAllBytes(MarkerPath, []);
+            }
+            else if (File.Exists(MarkerPath))
+            {
+                File.Delete(MarkerPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Both branches say what happened: a toggle that silently failed
+            // to persist comes back in the old state with nothing to explain it.
+            Log($"Log: could not {(on ? "create" : "remove")} the marker: {ex.Message}");
+            return;
+        }
+        Log($"Log: diagnostic logging {(on ? "on" : "off")}");
+    }
+
     internal static void Log(string msg)
     {
         try

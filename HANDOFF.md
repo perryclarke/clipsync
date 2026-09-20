@@ -761,3 +761,74 @@ what was drawn.
 
 **Note for whoever packages next.** `dist/clipsync_0.8.0_amd64.deb` and
 any installed copy predate all of this.
+
+## Handoff 2026-09-19 — Debug section in Settings (all three platforms)
+
+A **Debug** section in Settings on all three surfaces, plus a real file
+logger on macOS so "open the log" means the same thing there as on Windows.
+Design: `docs/superpowers/specs/2026-09-19-debug-section-design.md`. Both
+platforms bumped, with Linux, to **0.8.1** (Mac build 11).
+
+### What changed
+
+- **macOS (new)** `Sources/ClipSync/Logging.swift` — mirrors Windows'
+  `Identity.Log`: same gate (`CLIPSYNC_DEBUG=1`, a `debug-enabled` marker,
+  `--debug`/`-d`), same 5 MB rotation to `debug.log.1`, same
+  `HH:mm:ss.SSS message` lines, at
+  `~/Library/Application Support/ClipSync/debug.log`. All 25 `NSLog` call
+  sites now go through it. **stderr stays unconditional** — only the file
+  sink is gated — because running the binary and reading stderr is the one
+  macOS channel that has always worked.
+- **All three:** a Debug section with a **Debug logging** toggle (writes /
+  removes the marker, and takes effect immediately) and a button to reach
+  the log. macOS/Windows get "Open log" + reveal-in-file-manager, disabled
+  until the file exists; Linux gets "Copy command" for
+  `journalctl --user -u clipsync -f`, since its diagnostics go to the
+  journal, not a file.
+- **Reset moved in with Debug** on macOS and Windows, behind the same
+  modifier — "Start over" is the most destructive control in the app. On
+  Linux, where Debug is always shown, Reset is unchanged.
+- The toggle persists in the **`debug-enabled` marker file, not
+  `settings.json`**, so the shared settings schema is untouched.
+- Linux's copy goes through a new `ClipboardWriter.CopyLocally`, reusing the
+  writer's loop-suppression stamping so ClipSync does not sync its own
+  diagnostic command to every peer.
+
+### Revealing it
+
+`NSEvent.modifierFlags` (macOS) and `GetAsyncKeyState(VK_MENU)` (Windows),
+read at the click and passed in, never stored. Both settings windows are
+singletons, so both re-apply the flag on every show. **Linux always shows
+it** — a dbusmenu activation carries no modifier state to read.
+
+### Verified on macOS
+
+`swift build` clean; `swift test` **88 pass** (8 new `LoggingTests`, 2
+opt-in skips). Live, against the installed 0.8.1 bundle: `--debug` creates
+the log and fills it in Windows' exact format while leaving no marker
+behind; relaunching **without** `--debug` and with no marker leaves the log
+byte-for-byte unchanged (gate closed); dropping a `debug-enabled` marker in
+and relaunching makes it grow again (gate open). Both branches, as the
+house rule requires.
+
+### NOT verified — Windows and Linux
+
+**Neither was compiled.** This Mac has no .NET SDK at all (`dotnet` is not
+on PATH), so contrary to the note in CLAUDE.md about Linux building in this
+checkout, *nothing* C# could be built or tested here. The C# was written
+against the existing patterns and reviewed by hand; whoever has a toolchain
+should expect small fixes. Specifically unverified:
+
+- That `clipsync-win` and `clipsync-linux` compile at all.
+- The WinUI XAML: three new `RowDefinition`s were added for rows 10-12, and
+  `ResetHeader`/`ResetCard` were given `x:Name` + `Visibility="Collapsed"`.
+- Whether `GetAsyncKeyState(VK_MENU)` reports Alt for a click arriving as a
+  tray activation. If it does not, read the modifier in the tray icon's
+  click handler instead and pass it down.
+- Linux `TrayActions` gained two members (`SetDebugLogging`,
+  `CopyLogCommand`); `TrayMenuTests` was updated for that, but no test run
+  confirms it.
+- Whether `CopyLocally`'s suppression actually holds: if the compositor
+  synthesises extra target aliases the rebuilt item hashes differently and
+  the command may still travel to peers. Harmless — it is a shell command —
+  but it would be untidy, and the comment there says so.

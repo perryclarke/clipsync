@@ -47,7 +47,9 @@ internal sealed record TrayActions(
     Action<string> AddExclusion,
     Action<string> RemoveExclusion,
     Action<bool> SetStartAtLogin,
-    Action StartOver);
+    Action StartOver,
+    Action<bool> SetDebugLogging,
+    Action CopyLogCommand);
 
 /// Builds the tray menu: the right-click fallback, not the primary UI.
 ///

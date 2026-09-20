@@ -180,6 +180,18 @@ public static class Program
                 if (Environment.ProcessPath is { } exe)
                     System.Diagnostics.Process.Start(exe);
                 Environment.Exit(0);
+            },
+            SetDebugLogging: on =>
+            {
+                Identity.SetLoggingEnabled(on);
+                refreshUis();
+            },
+            // Local-only, so ClipSync doesn't push its own diagnostic
+            // command to every peer the moment you ask how to read the log.
+            CopyLogCommand: () =>
+            {
+                writer.CopyLocally(WindowModel.DebugLogCommand);
+                Identity.Log("Settings: copied the journal command");
             });
 
         // A second `clipsync` reaches the window through here.

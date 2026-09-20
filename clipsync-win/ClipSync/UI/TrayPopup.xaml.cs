@@ -481,8 +481,18 @@ public sealed partial class TrayPopup : Window
         // this popup, and the deactivation handler above knows to leave us
         // alone when the window taking focus is one of ours.
         _settingsOpenedAt = DateTime.UtcNow;
-        SettingsWindow.ShowSingleton(_bounds);
+        // Alt held on this click reveals the Reset and Debug sections. Read
+        // here, at the moment of the click, rather than stored anywhere.
+        // GetAsyncKeyState rather than the XAML modifier state: the click may
+        // arrive as a tray activation that carries no KeyRoutedEventArgs.
+        var alt = (GetAsyncKeyState(VkMenu) & 0x8000) != 0;
+        SettingsWindow.ShowSingleton(_bounds, alt);
     }
+
+    private const int VkMenu = 0x12;         // VK_MENU — either Alt key
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
 
     private void OnQuit(object sender, RoutedEventArgs e)
     {

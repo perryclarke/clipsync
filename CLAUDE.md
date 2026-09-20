@@ -70,11 +70,18 @@ StatusNotifierItem host: on GNOME that is
 `gnome-extensions enable ubuntu-appindicators@ubuntu.com`, which ships
 installed but disabled.
 
-Windows debug logging is off by default: `--debug` (or `-d`, `/debug`),
+Windows and macOS debug logging is off by default, with the same three
+switches on both: `--debug` (or `-d`; Windows also takes `/debug`),
 `CLIPSYNC_DEBUG=1`, or an empty `debug-enabled` file beside the log. Output
-goes to `%LOCALAPPDATA%\ClipSync\debug.log`. On macOS there is no log file —
-run the binary directly and read stderr (`NSLog` from an `open`-launched
-bundle does not surface via `log stream`).
+goes to `%LOCALAPPDATA%\ClipSync\debug.log` and
+`~/Library/Application Support/ClipSync/debug.log`. All three platforms also
+expose a **Debug** section in Settings — hold Option/Alt while opening it on
+macOS/Windows; it is always shown on Linux — with a toggle for the same
+switch and a button to reach the log.
+
+On macOS the *file* is gated; stderr is not, so running the binary directly
+still shows everything (`NSLog` from an `open`-launched bundle does not
+surface via `log stream`).
 
 Both apps accept `--reset` to clear the trust store at launch (before identity
 load / keychain prompts) so peers must re-trust.

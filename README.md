@@ -107,6 +107,20 @@ apps are matched by X11 `WM_CLASS`, typed in directly (find one with
 `xprop WM_CLASS` and a click on the window). See *Platform differences
 on Linux* for what this can and cannot match.
 
+### Debug section
+
+Settings has a **Debug** section holding a **Debug logging** toggle and a
+button to reach the log, so producing a log for a bug report does not mean
+learning a command line first. **Start over** lives there too.
+
+It is hidden until you ask for it: hold **Option** (macOS) or **Alt**
+(Windows) while opening Settings. On Linux it is always shown, because a
+tray-menu click there carries no modifier state to read.
+
+Logs hold network and protocol metadata only — never what you copied, and
+never key material. See *Building* for the file locations and the
+command-line switches that do the same thing.
+
 ## Repository map
 
 - **PROTOCOL.md** — wire format and state machines (source of truth for
@@ -203,6 +217,23 @@ since the journal already keeps the history for the service.
 (also `-d` / `/debug`) on the command line, `CLIPSYNC_DEBUG=1` in the
 environment, or an empty `debug-enabled` file next to the log. Output
 goes to `%LOCALAPPDATA%\ClipSync\debug.log`.
+
+**Debug logging (macOS).** Off by default, with the same three switches as
+Windows: `--debug` (or `-d`), `CLIPSYNC_DEBUG=1`, or an empty
+`debug-enabled` file next to the log. Output goes to
+`~/Library/Application Support/ClipSync/debug.log`, rotating to
+`debug.log.1` at 5 MB. Running the binary directly also prints everything
+to stderr whether or not logging is on.
+
+**The Debug section in Settings.** Rather than remembering any of the
+above, open Settings holding **Option** (macOS) or **Alt** (Windows) — on
+Linux it is always shown — for a **Debug** section with a logging toggle
+and a button that opens the log (on Linux, one that copies
+`journalctl --user -u clipsync -f`, since diagnostics go to the journal).
+**Start over** lives with it, behind the same modifier.
+
+Logs hold network and protocol metadata only — never what you copied, and
+never key material — so they are safe to attach to a bug report.
 
 ## Platform differences on Linux
 

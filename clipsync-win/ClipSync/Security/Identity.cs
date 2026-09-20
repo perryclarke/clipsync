@@ -104,20 +104,66 @@ public sealed class Identity
     /// Called from Program.Main when `--debug` is passed on the command line.
     internal static void EnableLogging() => _logEnabled = true;
 
+    internal static string LogDirectory =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClipSync");
+
+    internal static string LogPath => Path.Combine(LogDirectory, "debug.log");
+    internal static string MarkerPath => Path.Combine(LogDirectory, "debug-enabled");
+
+    /// Is diagnostic logging on? Resolves the env var and marker file the
+    /// same way Log does, so the settings toggle shows the real state.
+    internal static bool LoggingEnabled
+    {
+        get
+        {
+            _logEnabled ??= Environment.GetEnvironmentVariable("CLIPSYNC_DEBUG") == "1"
+                            || File.Exists(MarkerPath);
+            return _logEnabled == true;
+        }
+    }
+
+    /// Turn diagnostic logging on or off from the settings window. Flips the
+    /// in-memory flag so it takes effect immediately, and writes/removes the
+    /// marker so it survives a restart.
+    internal static void SetLoggingEnabled(bool on)
+    {
+        _logEnabled = on;
+        try
+        {
+            if (on)
+            {
+                Directory.CreateDirectory(LogDirectory);
+                if (!File.Exists(MarkerPath)) File.WriteAllBytes(MarkerPath, []);
+            }
+            else if (File.Exists(MarkerPath))
+            {
+                File.Delete(MarkerPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Both branches say what happened: a toggle that silently failed
+            // to persist comes back in the old state with nothing to explain it.
+            Log($"Log: could not {(on ? "create" : "remove")} the marker: {ex.Message}");
+            return;
+        }
+        Log($"Log: diagnostic logging {(on ? "on" : "off")}");
+    }
+
     internal static void Log(string msg)
     {
         try
         {
-            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClipSync");
-            _logEnabled ??= Environment.GetEnvironmentVariable("CLIPSYNC_DEBUG") == "1"
-                            || File.Exists(Path.Combine(dir, "debug-enabled"));
-            if (_logEnabled != true) return;
+            if (!LoggingEnabled) return;
             lock (LogLock)
             {
-                var path = Path.Combine(dir, "debug.log");
+                // The settings toggle can enable logging long after launch,
+                // so the directory may not exist yet.
+                Directory.CreateDirectory(LogDirectory);
+                var path = LogPath;
                 var fi = new FileInfo(path);
                 if (fi.Exists && fi.Length > 5_000_000)
-                    File.Move(path, Path.Combine(dir, "debug.log.1"), overwrite: true);
+                    File.Move(path, Path.Combine(LogDirectory, "debug.log.1"), overwrite: true);
                 File.AppendAllText(path, $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
             }
         }

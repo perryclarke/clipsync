@@ -111,6 +111,7 @@ internal sealed class MainWindow
             if (content.Hidden.Count > 0) _groups.Append(HiddenGroup(content));
             _groups.Append(ExcludedGroup(content, pendingExclusion));
             _groups.Append(GeneralGroup());
+            _groups.Append(DebugGroup());
         }
         finally { _rebuilding = false; }
 
@@ -305,6 +306,42 @@ internal sealed class MainWindow
         reset.AddSuffix(button);
         reset.SetActivatableWidget(button);
         group.Add(reset);
+
+        return group;
+    }
+
+    /// The Debug group. macOS and Windows hide theirs behind Option/Alt at
+    /// summon time; a dbusmenu activation carries no modifier state, so on
+    /// Linux it is simply always here — which also suits the platform where
+    /// the app is most often run from a terminal.
+    private Adw.PreferencesGroup DebugGroup()
+    {
+        var group = Adw.PreferencesGroup.New();
+        group.SetTitle(WindowModel.DebugTitle);
+
+        var logging = Adw.SwitchRow.New();
+        logging.SetUseMarkup(false);
+        logging.SetTitle(WindowModel.DebugLoggingTitle);
+        logging.SetSubtitle(WindowModel.DebugLoggingSubtitle);
+        logging.SetActive(Identity.LoggingEnabled);
+        logging.OnNotify += (_, args) =>
+        {
+            if (_rebuilding || args.Pspec.GetName() != "active") return;
+            _actions!.SetDebugLogging(logging.GetActive());
+        };
+        group.Add(logging);
+
+        var log = Adw.ActionRow.New();
+        log.SetUseMarkup(false);
+        log.SetTitle(WindowModel.DebugLogTitle);
+        log.SetSubtitle(WindowModel.DebugLogSubtitle);
+        var copy = Gtk.Button.NewWithLabel(WindowModel.DebugCopyLabel);
+        copy.SetValign(Gtk.Align.Center);
+        copy.SetTooltipText(WindowModel.DebugLogCommand);
+        copy.OnClicked += (_, _) => _actions!.CopyLogCommand();
+        log.AddSuffix(copy);
+        log.SetActivatableWidget(copy);
+        group.Add(log);
 
         return group;
     }

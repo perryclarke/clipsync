@@ -25,7 +25,12 @@ struct MenuBarView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 MenuActionRow(icon: "gearshape", title: "Settings…") {
-                    SettingsWindowController.shared.show(coordinator: coordinator)
+                    // Option held on this click reveals the Debug section —
+                    // read here, at the moment of the click, rather than
+                    // stored anywhere.
+                    let option = NSEvent.modifierFlags.contains(.option)
+                    SettingsWindowController.shared.show(coordinator: coordinator,
+                                                         debug: option)
                 }
                 MenuActionRow(icon: coordinator.globalPaused ? "play.fill" : "pause.fill",
                               title: coordinator.globalPaused ? "Resume syncing" : "Pause syncing") {

@@ -11,17 +11,27 @@ import UniformTypeIdentifiers
 final class SettingsWindowController {
     static let shared = SettingsWindowController()
     private var window: NSWindow?
+    private var hosting: NSHostingController<AnyView>?
 
-    func show(coordinator: AppCoordinator) {
-        if window == nil {
-            let content = SettingsView().environmentObject(coordinator)
-            let hosting = NSHostingController(rootView: content)
-            let w = NSWindow(contentViewController: hosting)
+    /// `debug` reveals the Debug section, and is passed per-summon rather
+    /// than stored: it reflects whether Option was held on *this* click.
+    /// The window is cached, so the root view is re-assigned every time —
+    /// otherwise a second summon would keep the first one's answer.
+    func show(coordinator: AppCoordinator, debug: Bool = false) {
+        let content = AnyView(
+            SettingsView(showDebug: debug).environmentObject(coordinator)
+        )
+        if let hosting {
+            hosting.rootView = content
+        } else {
+            let controller = NSHostingController(rootView: content)
+            let w = NSWindow(contentViewController: controller)
             w.title = "ClipSync Settings"
             w.styleMask = [.titled, .closable, .miniaturizable]
             w.isReleasedWhenClosed = false
             w.setContentSize(NSSize(width: 480, height: 640))
             w.center()
+            hosting = controller
             window = w
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -32,6 +42,10 @@ final class SettingsWindowController {
 // MARK: - Settings content
 
 struct SettingsView: View {
+    /// True when Settings was summoned with Option held. Hidden otherwise:
+    /// this is a diagnostic surface, not something to meet on day one.
+    var showDebug = false
+
     @EnvironmentObject var coordinator: AppCoordinator
     @State private var showingPicker = false
     @State private var opensAtLogin = false
@@ -130,24 +144,13 @@ struct SettingsView: View {
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
             }
 
-            Divider().padding(.vertical, 4)
-
-            Text("Reset")
-                .font(.headline)
-
-            HStack(alignment: .top) {
-                Text("Forget trusted devices, hidden devices, excluded apps and paused peers, then relaunch ClipSync as it was when first installed.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer()
-                Button("Start over…") { confirmingStartOver = true }
-            }
-            .alert("Start over?", isPresented: $confirmingStartOver) {
-                Button("Start over", role: .destructive) { coordinator.startOver() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("ClipSync will forget every trusted device, hidden device, excluded app and paused peer on this Mac, then relaunch as it was when first installed. This Mac keeps its identity, and other devices are not told: to reconnect, both sides will need to trust each other again.")
+            // Reset keeps the same company as Debug: both are things you go
+            // looking for when something is wrong, and "Start over" is the
+            // most destructive control in the app — not something to meet
+            // while browsing ordinary settings.
+            if showDebug {
+                resetSection
+                debugSection
             }
         }
         .padding(16)
@@ -159,6 +162,71 @@ struct SettingsView: View {
                 coordinator.addExclusion(identity)
             }
         }
+    }
+
+    /// Shown only alongside Debug — see the call site.
+    @ViewBuilder
+    private var resetSection: some View {
+        Divider().padding(.vertical, 4)
+
+        Text("Reset")
+            .font(.headline)
+
+        HStack(alignment: .top) {
+            Text("Forget trusted devices, hidden devices, excluded apps and paused peers, then relaunch ClipSync as it was when first installed.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button("Start over…") { confirmingStartOver = true }
+        }
+        .alert("Start over?", isPresented: $confirmingStartOver) {
+            Button("Start over", role: .destructive) { coordinator.startOver() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("ClipSync will forget every trusted device, hidden device, excluded app and paused peer on this Mac, then relaunch as it was when first installed. This Mac keeps its identity, and other devices are not told: to reconnect, both sides will need to trust each other again.")
+        }
+    }
+
+    /// Shown only when Settings was opened with Option held. The same
+    /// section, wording and controls exist on Windows and Linux.
+    @ViewBuilder
+    private var debugSection: some View {
+        Divider().padding(.vertical, 4)
+
+        Text("Debug")
+            .font(.headline)
+
+        Toggle("Debug logging", isOn: Binding(
+            get: { coordinator.debugLogging },
+            set: { coordinator.setDebugLogging($0) }
+        ))
+
+        // Say what lands in the file, because the honest answer is what
+        // makes it safe to send to someone: metadata, never content.
+        Text("Records network and protocol activity to a file. Never includes what you copied, or key material.")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        HStack {
+            Button("Open log") { coordinator.openLogFile() }
+                // Nothing to open until something has been written; a button
+                // that opens an empty window reads as a bug.
+                .disabled(!coordinator.logFileExists)
+            Button("Show in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([coordinator.logFileURL])
+            }
+            .disabled(!coordinator.logFileExists)
+            Spacer()
+        }
+
+        Text(coordinator.logFileURL.path)
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+            .lineLimit(1)
+            .truncationMode(.middle)
     }
 }
 

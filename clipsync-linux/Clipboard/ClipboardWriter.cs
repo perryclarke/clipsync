@@ -80,6 +80,24 @@ public sealed class ClipboardWriter
         }
     }
 
+    /// Put text on this machine's clipboard without sending it to peers —
+    /// used by the settings window's Debug section for the journal command.
+    /// A diagnostic command is for the machine you are diagnosing, and
+    /// pushing it to every device would be a surprising thing for a Copy
+    /// button in Settings to do.
+    ///
+    /// Suppression reuses Apply's stamping, so the watcher recognises the
+    /// change as ours. If the compositor synthesises extra target aliases
+    /// the rebuilt item can still hash differently and travel; it is a
+    /// shell command, so that is untidy rather than harmful.
+    public void CopyLocally(string text)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        var format = new ClipFormat(ClipboardFormats.Wanted[0].Mime,
+                                    (ulong)bytes.Length, bytes, null);
+        Apply(new ClipboardItem(0, new byte[32], 0, [format], text));
+    }
+
     private void StampRecent(byte[] hash)
     {
         lock (_lock) _recent.Add((hash, DateTime.UtcNow + RecentWindow));

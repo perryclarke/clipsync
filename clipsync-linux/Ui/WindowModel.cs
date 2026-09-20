@@ -71,6 +71,24 @@ internal static class WindowModel
     public const string StartOverConfirm = "Start over";
     public const string CancelLabel = "Cancel";
 
+    // Debug. macOS and Windows hide this section unless Settings is opened
+    // with Option/Alt held; here it is always shown, because a tray-menu
+    // activation over StatusNotifierItem carries no modifier state to read.
+    public const string DebugTitle = "Debug";
+    public const string DebugLoggingTitle = "Debug logging";
+    // Same promise as the other platforms: metadata only. That is what
+    // makes a log safe to send to someone.
+    public const string DebugLoggingSubtitle =
+        "Records network and protocol activity. Never includes what you " +
+        "copied, or key material.";
+    // Unlike the others there is no file to open: the daemon logs to stderr,
+    // which systemd captures. So hand over the command that reads it.
+    public const string DebugLogTitle = "Log";
+    public const string DebugLogSubtitle =
+        "Diagnostics go to the systemd journal, not a file.";
+    public const string DebugCopyLabel = "Copy command";
+    public const string DebugLogCommand = "journalctl --user -u clipsync -f";
+
     public static WindowContent Build(TrayState state, string deviceName, string fingerprint)
     {
         var hiddenDids = state.Hidden.Select(h => h.DidHex)

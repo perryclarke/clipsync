@@ -198,10 +198,14 @@ public sealed partial class SettingsWindow : Window
     ///
     /// `anchor` is the tray popup's bounds in physical pixels, so this window
     /// can sit beside it rather than on top of it.
-    public static void ShowSingleton(RectInt32? anchor = null)
+    /// `debug` reveals the Reset and Debug sections, and is applied on every
+    /// show rather than only at creation: it reflects whether Alt was held
+    /// on *this* click, and the window is a singleton that outlives it.
+    public static void ShowSingleton(RectInt32? anchor = null, bool debug = false)
     {
         var created = _instance is null;
         _instance ??= new SettingsWindow();
+        _instance.ApplyDebugVisibility(debug);
 
         // Only on first show: moving a window the user has already dragged
         // somewhere would be the tray dictating their layout.
@@ -223,6 +227,79 @@ public sealed partial class SettingsWindow : Window
     }
 
     private RectInt32? _anchor;
+
+    // MARK: Reset + Debug
+
+    /// Show or hide the Alt-only sections, and sync the toggle to what
+    /// logging is actually doing (it can be on from CLIPSYNC_DEBUG or
+    /// --debug, neither of which wrote the marker).
+    private void ApplyDebugVisibility(bool debug)
+    {
+        var visibility = debug ? Visibility.Visible : Visibility.Collapsed;
+        ResetHeader.Visibility = visibility;
+        ResetCard.Visibility = visibility;
+        DebugHeader.Visibility = visibility;
+        DebugLoggingCard.Visibility = visibility;
+        DebugLogCard.Visibility = visibility;
+        if (!debug) return;
+
+        _syncingDebugToggle = true;
+        DebugLoggingToggle.IsOn = Security.Identity.LoggingEnabled;
+        _syncingDebugToggle = false;
+        RefreshLogButtons();
+    }
+
+    /// True while the toggle is being set to match reality, so the Toggled
+    /// handler doesn't treat that as the user asking for a change.
+    private bool _syncingDebugToggle;
+
+    private void RefreshLogButtons()
+    {
+        // Nothing to open until something has been written; a button that
+        // opens an empty window reads as a bug.
+        var exists = System.IO.File.Exists(Security.Identity.LogPath);
+        OpenLogButton.IsEnabled = exists;
+        ShowLogButton.IsEnabled = exists;
+    }
+
+    private void OnDebugLoggingToggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingDebugToggle) return;
+        Security.Identity.SetLoggingEnabled(DebugLoggingToggle.IsOn);
+        RefreshLogButtons();
+    }
+
+    private void OnOpenLog(object sender, RoutedEventArgs e)
+    {
+        var path = Security.Identity.LogPath;
+        if (!System.IO.File.Exists(path)) { RefreshLogButtons(); return; }
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Security.Identity.Log($"Settings: could not open the log: {ex.Message}");
+        }
+    }
+
+    private void OnShowLog(object sender, RoutedEventArgs e)
+    {
+        var path = Security.Identity.LogPath;
+        if (!System.IO.File.Exists(path)) { RefreshLogButtons(); return; }
+        try
+        {
+            // /select, needs the path quoted but the switch unquoted.
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{path}\"")
+                { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Security.Identity.Log($"Settings: could not reveal the log: {ex.Message}");
+        }
+    }
 
     private void OnFirstActivated(object sender, WindowActivatedEventArgs e)
     {

@@ -34,7 +34,9 @@ public class TrayMenuTests
                 AddExclusion: _ => { },
                 RemoveExclusion: _ => { },
                 SetStartAtLogin: _ => { },
-                StartOver: () => { }));
+                StartOver: () => { },
+                SetDebugLogging: _ => { },
+                CopyLogCommand: () => { }));
         return menu;
     }
 
