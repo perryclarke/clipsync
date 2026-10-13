@@ -21,6 +21,7 @@ internal static class TrayPixmaps
 
     public static IReadOnlyList<(int Size, byte[] Argb)>? Active { get; }
     public static IReadOnlyList<(int Size, byte[] Argb)>? Paused { get; }
+    public static IReadOnlyList<(int Size, byte[] Argb)>? Attention { get; }
 
     /// Force the static initializer now, on the caller's thread. Called
     /// from Program.Main before discovery starts: GirCore's module/type
@@ -46,6 +47,7 @@ internal static class TrayPixmaps
         }
         Active = TryRender("tray-active.svg");
         Paused = TryRender("tray-paused.svg");
+        Attention = TryRender("tray-attention.svg");
     }
 
     private static IReadOnlyList<(int, byte[])>? TryRender(string file)

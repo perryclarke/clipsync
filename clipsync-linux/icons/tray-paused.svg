@@ -1,21 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
-  <!-- The tray icon while paused: clipboard glyph with orange pause bars,
-       matching the Mac (StatusIcon.swift) and Windows badges. The orange is
-       the Mac's dark-bar variant, chosen there for a light glyph on a dark
-       bar — exactly the GNOME situation. The <svg> tag must be the first
-       bytes of the file; see tray-active.svg. -->
+  <!-- The tray icon while paused: pause bars on the badge disc.
+       The composition matches the Mac menu-bar icon (StatusIcon.swift) and
+       the Windows tray badge: a white clipboard with a blue disc in the
+       bottom-right carrying a white status mark. The blue is macOS
+       systemBlue (#0a84ff). White glyph because the GNOME top bar is dark in
+       both themes.
+       NOTE: the <svg> tag must be the first bytes of the file — gdk-pixbuf
+       recognizes the format by sniffing the file head, and an XML prolog or
+       leading comment makes it unrecognizable. -->
   <defs>
     <mask id="cutouts">
       <rect width="22" height="22" fill="white"/>
+      <!-- halo around the clip, separating it from the body so the shape
+           reads as a clipboard rather than a battery -->
       <rect x="7.3" y="0.4" width="7.4" height="5.6" rx="2" fill="black"/>
+      <!-- the list lines, knocked out of the fill like the SF symbol -->
       <rect x="7.6" y="8.2" width="6.8" height="1.25" rx="0.6" fill="black"/>
       <rect x="7.6" y="11.0" width="6.8" height="1.25" rx="0.6" fill="black"/>
+      <!-- the well the badge disc sits in, so the blue does not run into
+           the white body -->
+      <circle cx="16" cy="16" r="6.45" fill="black"/>
     </mask>
   </defs>
   <rect x="4.6" y="3.2" width="12.8" height="17" rx="2" fill="#ffffff" mask="url(#cutouts)"/>
   <rect x="8.2" y="1.2" width="5.6" height="4" rx="1.4" fill="#ffffff"/>
-  <g fill="#b85700">
-    <rect x="8.8" y="13.5" width="1.7" height="5.2" rx="0.85"/>
-    <rect x="11.5" y="13.5" width="1.7" height="5.2" rx="0.85"/>
+  <circle cx="16" cy="16" r="5.5" fill="#0a84ff"/>
+  <g fill="#ffffff">
+    <rect x="14.2" y="13.9" width="1.35" height="4.2" rx="0.65"/>
+    <rect x="16.45" y="13.9" width="1.35" height="4.2" rx="0.65"/>
   </g>
 </svg>

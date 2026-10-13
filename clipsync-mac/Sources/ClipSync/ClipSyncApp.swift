@@ -15,12 +15,11 @@ struct ClipSyncApp: App {
             MenuBarView()
                 .environmentObject(coordinator)
         } label: {
-            // The status item is where a paused device says so without
-            // the user having to go looking — the macOS analogue of the
-            // Windows tray-icon badge. Composed as an NSImage because
-            // MenuBarExtra template-renders label views, stripping colour.
-            Image(nsImage: StatusIcon.make(paused: coordinator.globalPaused))
-                .accessibilityLabel(coordinator.globalPaused ? "ClipSync, paused" : "ClipSync")
+            // The status item is where a paused device — or one with a peer
+            // waiting to be trusted — says so without the user having to go
+            // looking. The macOS analogue of the Windows tray-icon badge.
+            Image(nsImage: StatusIcon.make(badge: coordinator.statusBadge))
+                .accessibilityLabel(coordinator.statusDescription)
         }
         .menuBarExtraStyle(.window)
     }
@@ -52,6 +51,31 @@ final class AppCoordinator: ObservableObject {
     var visiblePeers: [Peer] {
         let hidden = Set(hiddenPeers.map(\.didHex))
         return peerList.filter { !hidden.contains($0.didHex.lowercased()) }
+    }
+
+    /// A device that has tried to connect is waiting to be trusted. This is
+    /// the one state that needs the user to act, so it outranks the pause
+    /// badge in the menu bar — a pause is something they chose and the
+    /// popover spells out anyway, while a peer knocking is otherwise
+    /// invisible until they go looking. A peer merely *seen* advertising
+    /// does not count: on a shared network that would badge the menu bar
+    /// for every stranger's ClipSync, with nothing the user wants to do
+    /// about it. Those still get a row and a Trust button.
+    var needsAttention: Bool {
+        visiblePeers.contains { $0.state == .pending && $0.knocked }
+    }
+
+    var statusBadge: StatusIcon.Badge {
+        if needsAttention { return .attention }
+        return globalPaused ? .paused : .syncing
+    }
+
+    var statusDescription: String {
+        switch statusBadge {
+        case .attention: return "ClipSync, a device is asking to be trusted"
+        case .paused: return "ClipSync, paused"
+        case .syncing: return "ClipSync"
+        }
     }
 
     init() {

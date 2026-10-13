@@ -68,6 +68,15 @@ internal sealed class TrayMenu
 
     public MenuItem Root { get; private set; } = new();
     public bool Paused { get; private set; }
+    /// A device that has tried to connect is waiting to be trusted. The one
+    /// state that needs the user to act, so it outranks the pause badge on
+    /// the tray icon: a pause is something they chose and the menu spells it
+    /// out anyway, while a peer knocking is otherwise invisible until they go
+    /// looking. A peer merely *seen* advertising does not count — on a shared
+    /// network that would badge the tray for every stranger's ClipSync. Those
+    /// still get a row and a Trust button. Hidden devices are a display
+    /// preference, so they do not raise it either.
+    public bool NeedsAttention { get; private set; }
 
     public MenuItem? Find(int id) => _byId.TryGetValue(id, out var item) ? item : null;
 
@@ -80,6 +89,10 @@ internal sealed class TrayMenu
         // clicking it does nothing.
         _nextId = 0;
         Paused = state.Paused;
+        var hidden = state.Hidden.Select(h => h.DidHex.ToLowerInvariant()).ToHashSet();
+        NeedsAttention = state.Peers.Any(
+            p => p.State == PeerState.Pending && p.Knocked
+                 && !hidden.Contains(p.DidHex.ToLowerInvariant()));
 
         var root = New(new MenuItem());
 

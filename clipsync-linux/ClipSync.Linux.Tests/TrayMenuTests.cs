@@ -17,12 +17,14 @@ public class TrayMenuTests
     private static TrayMenu Build(bool paused = false,
                                   Action<bool>? setPaused = null,
                                   Action? openWindow = null,
-                                  Action? quit = null)
+                                  Action? quit = null,
+                                  IReadOnlyList<Peer>? peers = null,
+                                  IReadOnlyList<HiddenPeer>? hidden = null)
     {
         var menu = new TrayMenu();
         menu.Build(
-            new TrayState(Array.Empty<Peer>(), paused, _ => false,
-                          Array.Empty<HiddenPeer>(), Array.Empty<AppIdentity>()),
+            new TrayState(peers ?? Array.Empty<Peer>(), paused, _ => false,
+                          hidden ?? Array.Empty<HiddenPeer>(), Array.Empty<AppIdentity>()),
             new TrayActions(
                 SetPaused: setPaused ?? (_ => { }),
                 Trust: _ => { },
@@ -113,4 +115,77 @@ public class TrayMenuTests
     [Fact]
     public void RootHasIdZero_WhichHostsAskForByConvention()
         => Assert.Equal(0, Build().Root.Id);
+
+    // ---- Attention -------------------------------------------------
+    //
+    // A device waiting to be trusted is the one state that needs the user to
+    // act, and the tray icon is where it has to show: a peer refused at the
+    // TLS handshake is otherwise invisible until they go looking.
+
+    [Fact]
+    public void NoPeersNeedsNoAttention()
+    {
+        Assert.False(Build().NeedsAttention);
+    }
+
+    private static Peer Knocker(string did = "aabbccdd")
+        => new(did, did, PeerState.Pending, Version: null, Knocked: true);
+
+    [Fact]
+    public void PeerThatKnockedNeedsAttention()
+    {
+        Assert.True(Build(peers: new[] { Knocker() }).NeedsAttention);
+    }
+
+    /// The whole point of the Knocked flag: a device merely seen advertising
+    /// is not asking this user for anything, and on a shared network badging
+    /// for every stranger's ClipSync would mean a badge that never clears.
+    /// It still gets a row and a Trust button — it just does not nag.
+    [Fact]
+    public void MerelyDiscoveredPeerNeedsNoAttention()
+    {
+        var menu = Build(peers: new[] { new Peer("aabbccdd", "Someone's laptop", PeerState.Pending) });
+        Assert.False(menu.NeedsAttention);
+    }
+
+    [Theory]
+    [InlineData(PeerState.Online)]
+    [InlineData(PeerState.Looking)]
+    [InlineData(PeerState.Offline)]
+    public void OtherStatesNeedNoAttention(PeerState state)
+    {
+        var menu = Build(peers: new[] { new Peer("aabbccdd", "Peer", state, Knocked: true) });
+        Assert.False(menu.NeedsAttention);
+    }
+
+    /// Hiding a device is a display preference, so a hidden one must not
+    /// badge the tray with something the user cannot see or act on.
+    [Fact]
+    public void HiddenKnockerNeedsNoAttention()
+    {
+        var menu = Build(peers: new[] { Knocker() },
+                         hidden: new[] { new HiddenPeer("AABBCCDD", "Old laptop") });
+        Assert.False(menu.NeedsAttention);
+    }
+
+    /// Pausing does not make a device asking to be trusted go away.
+    [Fact]
+    public void PausedStillNeedsAttentionWhenAPeerKnocked()
+    {
+        var menu = Build(paused: true, peers: new[] { Knocker() });
+        Assert.True(menu.NeedsAttention);
+        Assert.True(menu.Paused);
+    }
+
+    /// One quiet stranger must not mask a device that really is asking.
+    [Fact]
+    public void AKnockerAmongDiscoveredPeersStillNeedsAttention()
+    {
+        var menu = Build(peers: new[]
+        {
+            new Peer("11112222", "Someone's laptop", PeerState.Pending),
+            Knocker("aabbccdd"),
+        });
+        Assert.True(menu.NeedsAttention);
+    }
 }

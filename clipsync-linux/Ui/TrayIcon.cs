@@ -120,11 +120,12 @@ internal sealed class TrayIcon : IAsyncDisposable, IPathMethodHandler
     {
         if (_state is null || _actions is null) return;
         var wasPaused = _menu.Paused;
+        var wasAttention = _menu.NeedsAttention;
         _menu.Build(_state(), _actions);
 
-        // The icon and title both change with the pause state, and hosts
-        // cache them until told otherwise.
-        if (_menu.Paused != wasPaused)
+        // The icon and title both change with the pause and attention
+        // states, and hosts cache them until told otherwise.
+        if (_menu.Paused != wasPaused || _menu.NeedsAttention != wasAttention)
         {
             EmitItemSignal("NewIcon");
             EmitItemSignal("NewTitle");
@@ -148,7 +149,9 @@ internal sealed class TrayIcon : IAsyncDisposable, IPathMethodHandler
     private string? _lastSignature;
 
     private IReadOnlyList<(int Size, byte[] Argb)>? CurrentPixmaps()
-        => _menu.Paused ? TrayPixmaps.Paused : TrayPixmaps.Active;
+        => _menu.NeedsAttention ? TrayPixmaps.Attention
+            : _menu.Paused ? TrayPixmaps.Paused
+            : TrayPixmaps.Active;
 
     private void EmitItemSignal(string member)
     {
@@ -549,7 +552,12 @@ internal sealed class TrayIcon : IAsyncDisposable, IPathMethodHandler
         {
             case "Category": w.WriteVariantString("ApplicationStatus"); return true;
             case "Id": w.WriteVariantString("clipsync"); return true;
-            case "Title": w.WriteVariantString(_menu.Paused ? "ClipSync — Paused" : "ClipSync"); return true;
+            case "Title":
+                w.WriteVariantString(
+                    _menu.NeedsAttention ? "ClipSync — a device is asking to be trusted"
+                    : _menu.Paused ? "ClipSync — Paused"
+                    : "ClipSync");
+                return true;
             case "Status": w.WriteVariantString("Active"); return true;
 
             // The real icon is the pixmap below — the same clipboard-plus-
@@ -560,7 +568,9 @@ internal sealed class TrayIcon : IAsyncDisposable, IPathMethodHandler
             case "IconName":
                 w.WriteVariantString(
                     CurrentPixmaps() is not null ? ""
-                    : _menu.Paused ? "edit-paste-symbolic" : "edit-copy-symbolic");
+                    : _menu.NeedsAttention ? "dialog-question-symbolic"
+                    : _menu.Paused ? "edit-paste-symbolic"
+                    : "edit-copy-symbolic");
                 return true;
 
             case "IconPixmap":
