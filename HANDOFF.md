@@ -832,3 +832,271 @@ should expect small fixes. Specifically unverified:
   synthesises extra target aliases the rebuilt item hashes differently and
   the command may still travel to peers. Harmless — it is a shell command —
   but it would be untidy, and the comment there says so.
+
+---
+
+## Handoff 2026-10-13 — the menu-bar icon that was never there, and saying why a peer was refused
+
+Reported as "ClipSync is failing to start", with a log full of
+`conn server state failed(-9808: bad certificate format)`. Two separate
+faults, neither of them a certificate problem.
+
+### -9808 is not a malformed certificate
+
+`-9808 errSSLBadCert` is what Network.framework reports when **our own**
+`sec_protocol_options_set_verify_block` calls `complete(false)`. Proved by
+loopback, pinning the identity on one side only:
+
+| who refused | server conn | client conn |
+|---|---|---|
+| server's verify block | `failed(-9808: bad certificate format)` | `failed(-9825: misc. bad certificate)` |
+| client's verify block | `failed(-9825: misc. bad certificate)` | `waiting(-9808: bad certificate format)` |
+| neither | `ready` | `ready` |
+
+So `-9808` on a *server* connection means "we turned the peer away", and
+`-9825` is what the other end sees. The certificate parsed fine.
+
+In the reported case the Windows box had come back with a **new identity**:
+it advertised `did=22c29b3b…` as `PCLARKE-WIN11-1`, while the Mac's
+`trust.plist` held `32dca23b…` as `PCLARKE-WIN11-L`. Untrusted, so every
+inbound handshake was refused — correctly, and silently.
+
+Both halves now say so. macOS logs
+
+```
+TLS: refused incoming peer 22c29b3b — certificate is well-formed but not in the trust store
+```
+
+from the verify block, and Windows/Linux log the equivalent from
+`ValidatePeer`. An inbound refusal also registers the device as **pending**
+(`PeerRegistry.noteRefused` / `OnRefusedInbound`), named by its 8-hex
+fingerprint, so the Trust button appears even for a peer that is never seen
+over mDNS — discovery can be blocked in one direction, and until now such a
+peer could knock forever with nothing in the UI to let it in. A later
+discovery replaces the fingerprint with the advertised name.
+`onTrustRequested`'s endpoint is now optional: there is nothing to dial for
+a peer only ever seen knocking, and nothing that needs dialling, because it
+is still redialling us.
+
+### The icon was drawn black on black
+
+Separately, and the real reason the app looked dead: `StatusIcon.make`
+composed a **non-template** `NSImage` and drew the clipboard glyph in
+`NSColor.labelColor`. A status item is rasterised in whatever appearance the
+menu bar uses, which is not the app's — logging
+`NSAppearance.currentDrawing()` from inside the drawing handler shows it
+invoked under `NSAppearanceNameVibrantLight` **even in Dark Mode**, where
+`labelColor` is black at 70% alpha. The glyph was painted black on a black
+bar; only the small coloured badge survived, as a dot easily taken for
+another app's. Screenshots before/after confirm it.
+
+The fix landed in two steps, and the second one matters if this ever
+regresses.
+
+**First, a template image** (`isTemplate = true`), which AppKit tints to
+contrast with whatever bar it lands on, so it cannot vanish. That is what
+Apple wants a status item to be, and it is bulletproof. The cost is colour.
+
+**Then, on request, a blue badge disc**, which a template image cannot
+carry — so `isTemplate` is `false` again and the ink is chosen explicitly.
+The rule that replaces it: **never resolve a dynamic colour inside the
+drawing handler.** `NSColor.labelColor` is the trap; `NSApp.effectiveAppearance`
+read from inside the same handler reports the real Light/Dark setting
+correctly, as the diagnostic above shows, so that is what picks between
+white and near-black ink. The appearance is an injectable parameter on
+`make(badge:appearance:)` so the tests can check both without touching the
+system setting.
+
+What this trades away: when the system is in Light Mode but the menu bar is
+dark anyway — a dark desktop picture with wallpaper tinting on — the bar no
+longer matches `effectiveAppearance` and the clipboard glyph goes
+dark-on-dark again. The blue disc still shows, so the icon is findable
+rather than gone, but that is strictly weaker than the template guarantee.
+If it ever comes up, going back to a template is a small diff and the git
+history has it.
+
+`StatusIconTests` pins contrast rather than templateness: the glyph is light
+under `.darkAqua` and dark under `.aqua`; an icon built for a dark bar stays
+light even when *rasterised* under `.vibrantLight` (the exact trap); the disc
+is blue in both appearances; and the three badges differ in pixel shape, not
+just colour, at the 18 pt the menu bar actually draws. That last one is
+compared as a picture and printed on failure — `wifi` and `questionmark`
+light the same *number* of pixels at this size, so a count was not enough.
+
+Note for whoever reads the original bug: this was *also* being hidden under
+the camera housing on a notched display, which is a real second cause and
+why "the icon never appeared" was literally true even once it drew in white.
+Freeing space in the menu bar is still needed.
+
+### The attention state
+
+A device that has **knocked** — tried to connect and been refused at the
+handshake — now badges the status icon on all three platforms with a
+**question mark**, outranking the pause badge: a pause is something the user
+chose and every popover spells it out anyway, while a refused peer is
+otherwise invisible.
+
+Two deliberate narrowings, both asked for after seeing it run:
+
+- **A question mark, not an exclamation mark.** An unknown device asking to
+  pair is a question, not a fault, and `!` reads as something having gone
+  wrong — which is exactly the wrong signal from an app whose last bug sent
+  someone hunting a certificate problem that did not exist.
+- **Only peers that knocked.** A peer merely *seen* advertising does not
+  raise it. On a shared network that would badge for every stranger's
+  ClipSync, permanently, and a badge that never clears means nothing. Those
+  peers still get a row and a Trust button; they just do not nag.
+
+`Peer` carries a `knocked` / `Knocked` flag for this, stamped at emit time
+from a set kept beside the pending map rather than stored in it — a later
+discovery replaces the entry with the advertised name, and that must not
+lose the fact that this one is waiting on an answer. It clears when the user
+clicks Trust (immediately, not when the link finally comes up: a badge still
+asking after you said yes is worse than one that clears a moment early) and
+when a connection registers. Hidden devices do not raise it — hiding is a
+display preference.
+
+All three icons now draw the same composition: the clipboard with a blue
+disc (macOS systemBlue, `#0a84ff`) in the bottom-trailing corner carrying a
+white mark. On macOS and in the Linux SVGs a well is cleared around the disc
+first, so the blue does not run into the white body.
+
+- macOS: `AppCoordinator.needsAttention` / `.statusBadge`, off `visiblePeers`.
+- Windows: `TrayIcon.NeedsAttention()`, and `Peers.OnChange` now calls
+  `RefreshState()` so a peer going pending reaches the icon and tooltip.
+  `BuildPausedIcon` became `BuildBadgedIcon(source, Badge)`; `TrayPopup`
+  calls `Peers.NoteTrusted` beside `TrustStore.Add`.
+- Linux: `TrayMenu.NeedsAttention`, a third `icons/tray-attention.svg`
+  (picked up by the existing `icons/tray-*.svg` glob) and
+  `TrayPixmaps.Attention`. `Rebuild` emits `NewIcon`/`NewTitle` when either
+  state flips. `Program.cs`'s Trust action calls `peers.NoteTrusted`, as
+  Windows' `TrayPopup` does.
+
+The Windows badge draws its `?` with `Graphics.DrawString` rather than
+primitives — the glyph is a curve a few rectangles cannot fake, and the
+badge is far too small for a hand-built path to read. Linux's is a stroked
+arc plus a dot, which is the same reasoning at a size where a font would
+not help.
+
+### Peer-row status colour
+
+The status word in a peer row is now coloured, and the dot beside it uses
+the same colour, so the row reads as one thing rather than two signals that
+happen to sit together:
+
+| state | colour |
+|---|---|
+| Online | green |
+| Waiting to be trusted | blue |
+| Paused, Looking…, Offline | orange |
+
+The fingerprint and the peer's version stay in the row's muted grey, so the
+eye goes to the one part that changes. The colour never carries meaning on
+its own — the reason is always written out beside it, which is what a
+contrast theme and a colour-blind reader need.
+
+**This drops the amber highlight on a mismatched version.** That was
+deliberate once ("a version different from this machine's is the whole
+reason peers report it") and is gone by request: orange now means "not
+syncing", so reusing it for a version would say the wrong thing. macOS still
+mentions the mismatch in the row's accessibility label, which is now the
+only place it survives. If it should come back visually it needs a signal
+that is not orange.
+
+- macOS: `MenuBarView.dotColor` became `stateColor`, used by both the dot
+  and the state `Text`. `.foregroundColor` on a `Text` does win over the
+  row's outer `.foregroundStyle(.secondary)` — that was the one thing worth
+  checking.
+- Windows: `dotBrush` became `stateBrush`, applied to the ellipse and to the
+  status `Run`. Pending uses `SystemFillColorAttentionBrush` (the theme's
+  blue) falling back to `DodgerBlue`; Looking and Offline now use the same
+  amber as Paused.
+- **Linux is deliberately not done.** `MainWindow` calls `SetUseMarkup(false)`
+  on every row, and the subtitle is a single `Adw.ActionRow` string in a
+  different shape anyway (`"Waiting to be trusted — aabbccdd"`). Colouring
+  part of it means turning markup on, which means escaping the subtitle —
+  and it carries the peer-reported version, which is untrusted input. That
+  is not something to write blind on a machine that cannot compile it. The
+  recipe: `SetUseMarkup(true)` on the peer rows only, wrap the state word in
+  `<span foreground="…">`, and run everything else through
+  `GLib.Functions.MarkupEscapeText` first.
+
+### Badge mark weight
+
+The `wifi` mark read lighter than the pause bars and the question mark. It
+is the only badge mark that is both *stroked* and *wide*, and `fitted`
+scales a wide symbol to its box's width — so it came out shorter than the
+filled marks, with thinner strokes to match. `.black` is already the
+heaviest weight SF Symbols offers, so size was the only lever.
+
+`StatusIcon.Badge` gained an `inset` of its own: 1.6 for `.syncing` against
+2.25 for the other two, which gives `wifi` about 20% more of the disc.
+Linux's `tray-active.svg` got the same treatment by hand — arc geometry
+scaled by 1.2 about the disc centre and the stroke taken from 1.25 to 1.5.
+Both were rendered and compared against the other two badges before and
+after; Windows has no wifi mark (its unbadged icon *is* the normal state),
+so there was nothing to change there.
+
+### Verified on macOS
+
+`swift build` clean; `swift test` **100 pass**, 2 opt-in skips — 5
+`StatusIconTests` and 6 `PeerRegistryAttentionTests`, the latter covering
+the knock rule in both arrival orders.
+
+Version bumped to **0.8.5** across all four surfaces (`Info.plist` short
+string + `CFBundleVersion` 12, both csprojs, the WiX installer). Note
+`GirCore.Adw-1`'s own `Version="0.8.1"` in the Linux csproj is a package
+reference and was deliberately left alone.
+
+Checked live, against the real Windows peer:
+
+- **The icon is back.** Before/after menu-bar screenshots were compared; the
+  pre-fix build draws no glyph at all, only its badge, which is what made it
+  look like the app had not launched.
+- **The refusal path, end to end.** With the peer still untrusted and
+  redialling every few seconds, the icon showed the question-mark badge and
+  the log carried the new refusal line naming `22c29b3b` beside the `-9808`
+  it explains. After Trust, the handshake passed, the Hello came back and
+  the badge cleared to the plain wifi mark.
+- **The peer rows**, with the popover open: Online in green, Looking… in
+  orange, `22c29b3b / 0.8.0` in muted grey against this Mac's 0.8.5.
+- **Both badge marks and all three tray SVGs** were rendered and compared
+  side by side at size, before and after each change.
+
+`build-dmg.sh` was then run and the result installed: `dist/ClipSync.dmg`
+(2.6 MB) over `/Applications/ClipSync.app`, replacing 0.8.1/11 with
+0.8.5/12, signed with the Apple Development identity and passing
+`codesign --verify --deep --strict`. It is running from `/Applications` and
+paired with the Windows peer.
+
+### NOT verified — Windows and Linux
+
+**Neither was compiled.** This Mac still has no .NET SDK (`dotnet` is not on
+PATH), so contrary to CLAUDE.md's note about Linux building in this
+checkout, nothing C# could be built or tested here — same as the 2026-09-19
+handoff. Written against the existing patterns and reviewed by hand.
+Outstanding, in roughly the order worth doing:
+
+- That `clipsync-win` and `clipsync-linux` compile at all. `TrayIcon.cs`
+  (Windows) gained `using System.Linq;` and `using ClipSync.Net;` for `Any`
+  and `PeerState`; check they are not already pulled in implicitly.
+- `PeerRegistry.OnRefusedInbound` / `NoteTrusted` have no test on the C#
+  side. The macOS twins are covered by `PeerRegistryAttentionTests` and the
+  logic is deliberately identical, so porting those six cases is the obvious
+  first job.
+- `TrayMenuTests` gained seven attention cases (one of them a `[Theory]`
+  over three states) and its `Build` helper two optional parameters; no test
+  run confirms either.
+- The Windows `?` badge has never been rendered: `DrawString` with
+  `GenericSansSerif` at `d * 0.62f` is an educated guess at the size that
+  matches the pause bars' optical weight. Expect to nudge it. Its disc is
+  now `#0a84ff` with the existing white ring, which was tuned against the
+  old dark disc and may want revisiting against blue.
+- The three tray SVGs render correctly — all were put through macOS
+  QuickLook on a dark backdrop — but **not through gdk-pixbuf/librsvg**,
+  which is what Linux will actually use. They are circles, rects, arcs and a
+  mask; the one thing worth a look is the mask's knockout circle around the
+  badge disc, the only part likely to differ between renderers.
+- **Linux has no peer-row status colour.** Deliberate, not an oversight —
+  the reasoning and the recipe are under *Peer-row status colour* above. It
+  is the one place the three platforms genuinely diverge after today.

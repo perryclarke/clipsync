@@ -48,7 +48,15 @@ differently from the other two.
 **Then pair them.** Trust is two-sided. On each machine, open ClipSync
 and click **Trust** on the other; the first side's connection keeps
 failing until the second side trusts too. After that both remember each
-other and reconnect on their own.
+other and reconnect on their own. When a device has actually tried to
+connect and been turned away, the menu-bar / tray icon carries a
+question-mark badge, so you are not left wondering why nothing syncs. A
+device merely seen advertising — a stranger's ClipSync on a shared
+network — gets a row and a Trust button but no badge.
+
+A device that reinstalls, or is reset with `--reset`, comes back with a
+**new identity** and has to be trusted again — it appears as a new
+untrusted device, under the same name.
 
 To build from source instead, see *Building* below.
 
@@ -62,7 +70,12 @@ the Linux exceptions noted under *Platform differences on Linux*.
 Sending can be paused from the tray / menu-bar menu. **Pause Syncing**
 stops this device sending anything to anybody; the title reads
 "ClipSync — Paused" (and on Windows the tray tooltip follows), so it is
-visible without opening the menu. Each known peer also has its own
+visible without opening the menu. A device asking to be trusted
+outranks the pause badge on the icon, since it is the state you can
+actually do something about. All three platforms draw the same thing: a
+clipboard with a blue disc in the corner carrying a white mark — wifi
+while syncing, pause bars while paused, a question mark while a device
+is asking to be trusted. Each known peer also has its own
 pause — a ⏸ / ▶ button on Windows, an entry in the peer's submenu on
 macOS, a switch on the device's row in the ClipSync window on Linux —
 which pauses sending to just that machine. Both are send-only:
@@ -196,8 +209,8 @@ never routes a single click to the window while a menu is attached, and
 a StatusNotifierItem menu can only be a flat list that closes on every
 click, which is why the menu stays minimal and the window does the
 work.) Closing the window leaves the daemon running. The icon itself
-matches the other platforms — the clipboard glyph with a blue wifi badge,
-swapping to orange pause bars while paused.
+matches the other platforms — the clipboard glyph with a blue badge disc
+whose white mark follows the state.
 
 The window's **General** group holds "Start ClipSync when you sign in"
 (an XDG autostart entry; the .deb enables it system-wide, and the switch
