@@ -31,6 +31,10 @@ final class Discovery {
             guard let self else { return }
             self.log("trust \(name) \(didHex.prefix(8))")
             self.trustStore.add(didHex: didHex, name: name)
+            // No endpoint when the peer was only ever seen knocking on the
+            // listener. Nothing to dial — and nothing to do, because it is
+            // still redialling us and the handshake will now pass.
+            guard let endpoint else { return }
             self.connect(to: endpoint, didHex: didHex)
         }
         startListener()
@@ -57,7 +61,13 @@ final class Discovery {
     }
 
     private func startListener() {
-        let tlsOptions = TLS.makeServerOptions(identity: identity, trustStore: trustStore)
+        // A refused handshake is the one failure the user can actually fix,
+        // so register the device as pending rather than letting it bounce off
+        // the listener unseen.
+        let tlsOptions = TLS.makeServerOptions(identity: identity, trustStore: trustStore,
+                                               onRefuse: { [weak self] didHex in
+            self?.peers.noteRefused(didHex: didHex)
+        })
         let params = NWParameters(tls: tlsOptions)
         // Keep ClipSync on the real LAN: VPN tunnels (utun*) report as
         // `.other`. Advertising/listening over a tunnel makes us reachable

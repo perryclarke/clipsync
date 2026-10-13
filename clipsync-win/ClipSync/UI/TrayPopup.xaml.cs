@@ -256,6 +256,7 @@ public sealed partial class TrayPopup : Window
             {
                 Identity.Log($"Trust clicked: {name} did={did}");
                 App.Current.TrustStore.Add(did, name);
+                App.Current.Peers.NoteTrusted(did);
                 App.Current.Discovery.ConnectToPeer(did);
             };
 

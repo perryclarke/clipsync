@@ -9,6 +9,12 @@ struct Peer: Identifiable, Equatable {
     /// App version a connected peer reported in its Hello; nil for peers
     /// that aren't connected or predate the field.
     var version: String? = nil
+    /// This device actually tried to connect and was turned away at the
+    /// handshake, as opposed to merely being seen advertising. Only a peer
+    /// that knocked is waiting on an answer from *this* user — on a shared
+    /// network, badging for every stranger's ClipSync would mean a badge
+    /// that never clears and means nothing.
+    var knocked: Bool = false
     /// First 8 hex chars of the SPKI fingerprint — shown in the TOFU
     /// pair UI so the user can eyeball-verify it matches on both sides.
     var fingerprintShort: String { String(didHex.prefix(8)) }
@@ -19,7 +25,7 @@ struct Peer: Identifiable, Equatable {
     enum State: Equatable { case online, pending, looking, offline }
 
     func with(state: State) -> Peer {
-        Peer(didHex: didHex, name: name, state: state, version: version)
+        Peer(didHex: didHex, name: name, state: state, version: version, knocked: knocked)
     }
 }
 
@@ -29,12 +35,14 @@ final class PeerRegistry {
     /// Fired when the user clicks Trust on a pending peer. Discovery
     /// wires this up to persist to the trust store and kick off a
     /// real mTLS connect using the saved endpoint.
-    var onTrustRequested: ((String, String, NWEndpoint) -> Void)?
+    /// The endpoint is nil for a peer only ever seen knocking on the
+    /// listener: there is nothing to dial, and nothing that needs dialling.
+    var onTrustRequested: ((String, String, NWEndpoint?) -> Void)?
     /// Our own DID hex, used to break ties when both sides connect at once.
     var localDidHex: String = ""
 
     private var connections: [String: PeerConnection] = [:]       // didHex → live mTLS conn
-    private var pending: [String: (peer: Peer, endpoint: NWEndpoint)] = [:]
+    private var pending: [String: (peer: Peer, endpoint: NWEndpoint?)] = [:]
     /// Trusted peers seen advertised but not yet connected, shown as
     /// "Looking…". Keyed by didHex.
     private var looking: [String: Peer] = [:]
@@ -44,6 +52,11 @@ final class PeerRegistry {
     /// Peers whose connect attempt reached every advertised address and
     /// failed — evidence they are off. Cleared when a connection comes up.
     private var unreachable: Set<String> = []
+    /// Peers that have knocked: tried to connect and been refused at the
+    /// handshake. Kept beside `pending` rather than in it, so a later
+    /// discovery replacing the entry with the advertised name doesn't lose
+    /// the fact that this one is waiting on an answer.
+    private var knocked: Set<String> = []
 
     private static let lookingWindow: TimeInterval = 30
 
@@ -75,8 +88,10 @@ final class PeerRegistry {
             connections[hex] = pc
         }
         pending.removeValue(forKey: hex)
-        // A live link is the strongest evidence of reachability.
+        // A live link is the strongest evidence of reachability, and settles
+        // anything the peer was waiting to be asked.
         unreachable.remove(hex)
+        knocked.remove(hex)
         emit()
     }
 
@@ -101,6 +116,28 @@ final class PeerRegistry {
             endpoint
         )
         emit()
+    }
+
+    /// An incoming connection presented a certificate we don't trust, so the
+    /// handshake was refused. Show the device anyway, with the Trust button
+    /// every other pending peer gets: discovery is how a peer normally
+    /// becomes pending, and mDNS can be blocked in one direction, in which
+    /// case a device could knock forever with nothing in the UI to let the
+    /// user let it in. Named by its fingerprint — only the certificate is
+    /// known here, and the advertised name may never arrive. A later
+    /// `notePending` from discovery replaces that with the real name.
+    func noteRefused(didHex: String) {
+        let key = didHex.lowercased()
+        guard connections[key] == nil else { return }
+        // Record the knock even when the peer is already listed from
+        // discovery: the row may exist, but that it is *waiting on us* is
+        // what the menu-bar badge keys off, and only this says so.
+        var changed = knocked.insert(key).inserted
+        if pending[key] == nil {
+            pending[key] = (Peer(didHex: key, name: String(key.prefix(8)), state: .pending), nil)
+            changed = true
+        }
+        if changed { emit() }
     }
 
     /// A trusted peer has been discovered but is not yet connected. Show it
@@ -145,6 +182,11 @@ final class PeerRegistry {
     /// Called from the menu-bar "Trust" button.
     func trust(didHex: String) {
         guard let entry = pending[didHex] else { return }
+        // The user has answered, so the badge has nothing left to ask about.
+        // Clear it now rather than when the link comes up: the connect can
+        // take a while, and a badge still asking after you said yes is worse
+        // than one that clears a moment early.
+        if knocked.remove(didHex.lowercased()) != nil { emit() }
         onTrustRequested?(didHex, entry.peer.name, entry.endpoint)
     }
 
@@ -180,7 +222,9 @@ final class PeerRegistry {
             shown.insert(hex)
         }
         for (hex, entry) in pending where !shown.contains(hex) {
-            list.append(entry.peer)
+            var peer = entry.peer
+            peer.knocked = knocked.contains(hex)
+            list.append(peer)
             shown.insert(hex)
         }
         for (hex, peer) in looking where !shown.contains(hex) {

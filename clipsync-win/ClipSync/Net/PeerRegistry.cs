@@ -6,7 +6,13 @@ using System.Threading.Tasks;
 
 namespace ClipSync.Net;
 
-public sealed record Peer(string DidHex, string Name, PeerState State, string? Version = null);
+/// Knocked: this device actually tried to connect and was turned away at the
+/// handshake, as opposed to merely being seen advertising. Only a peer that
+/// knocked is waiting on an answer from this user — on a shared network,
+/// badging the tray for every stranger's ClipSync would mean a badge that
+/// never clears and means nothing.
+public sealed record Peer(string DidHex, string Name, PeerState State,
+                          string? Version = null, bool Knocked = false);
 /// Looking: a trusted peer we have seen advertised but not yet connected
 /// to, and have no evidence is unreachable. It is the honest label between
 /// discovery and the first Hello — calling that window "Offline" reported a
@@ -26,6 +32,11 @@ public sealed class PeerRegistry
     /// Peers whose every advertised address refused a connect. Cleared when
     /// a connection does come up.
     private readonly ConcurrentDictionary<string, byte> _unreachable = new();
+    /// Peers that have knocked: tried to connect and been refused at the
+    /// handshake. Kept beside _discovered rather than in it, so a later
+    /// OnDiscovered replacing the entry with the advertised name does not
+    /// lose the fact that this one is waiting on an answer.
+    private readonly ConcurrentDictionary<string, byte> _knocked = new();
     private readonly string _localDidHex;
 
     private static readonly TimeSpan LookingWindow = TimeSpan.FromSeconds(30);
@@ -48,6 +59,41 @@ public sealed class PeerRegistry
         }
         Security.Identity.Log($"PeerRegistry.OnDiscovered: {name} did={key} trusted={trusted} state={state}");
         Emit();
+    }
+
+    /// An incoming connection presented a certificate we do not trust, so the
+    /// handshake was refused. Show the device anyway, with the Trust button
+    /// every other pending peer gets: discovery is how a peer normally
+    /// becomes pending, and mDNS can be blocked in one direction, in which
+    /// case a device could knock forever with nothing in the UI to let the
+    /// user let it in. Named by its fingerprint — only the certificate is
+    /// known here, and the advertised name may never arrive, so a later
+    /// OnDiscovered replaces this entry with the real name.
+    public void OnRefusedInbound(string didHex)
+    {
+        var key = didHex.ToLowerInvariant();
+        if (_connections.ContainsKey(key)) return;
+        // Record the knock even when the peer is already listed from
+        // discovery: the row may exist, but that it is *waiting on us* is what
+        // the tray badge keys off, and only this says so.
+        var changed = _knocked.TryAdd(key, 0);
+        if (!_discovered.ContainsKey(key))
+        {
+            _discovered[key] = new Peer(key, key[..8], PeerState.Pending);
+            changed = true;
+        }
+        if (!changed) return;
+        Security.Identity.Log($"PeerRegistry.OnRefusedInbound: {key[..8]} shown as pending");
+        Emit();
+    }
+
+    /// The user has answered the question the badge was asking. Called from
+    /// the Trust button, before the connect that follows it: that can take a
+    /// while, and a badge still asking after you said yes is worse than one
+    /// that clears a moment early.
+    public void NoteTrusted(string didHex)
+    {
+        if (_knocked.TryRemove(didHex.ToLowerInvariant(), out _)) Emit();
     }
 
     /// Called by Discovery when a connect attempt has tried every address
@@ -76,6 +122,7 @@ public sealed class PeerRegistry
 
     public void Adopt(PeerConnection pc)
     {
+        pc.OnRefused = OnRefusedInbound;
         pc.OnItem = item =>
         {
             try { OnRemoteItem?.Invoke(item); }
@@ -85,7 +132,10 @@ public sealed class PeerRegistry
         {
             if (pc.PeerDid is not { } did) return;
             var hex = Convert.ToHexString(did).ToLowerInvariant();
+            // A live link is the strongest evidence of reachability, and
+            // settles anything the peer was waiting to be asked.
             _unreachable.TryRemove(hex, out _);
+            _knocked.TryRemove(hex, out _);
             while (true)
             {
                 if (_connections.TryAdd(hex, pc)) break;
@@ -140,7 +190,8 @@ public sealed class PeerRegistry
         foreach (var (hex, peer) in _discovered)
         {
             if (!connected.Contains(hex))
-                list.Add(peer with { State = ResolveState(hex, peer) });
+                list.Add(peer with { State = ResolveState(hex, peer),
+                                     Knocked = _knocked.ContainsKey(hex) });
         }
         Security.Identity.Log($"GetAll: returning {list.Count} peers");
         return list;
@@ -183,7 +234,8 @@ public sealed class PeerRegistry
         foreach (var (hex, peer) in _discovered)
         {
             if (!connected.Contains(hex))
-                list.Add(peer with { State = ResolveState(hex, peer) });
+                list.Add(peer with { State = ResolveState(hex, peer),
+                                     Knocked = _knocked.ContainsKey(hex) });
         }
         Security.Identity.Log($"PeerRegistry.Emit: {list.Count} peers, OnChange={OnChange is not null}");
         OnChange?.Invoke(list);

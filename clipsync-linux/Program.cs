@@ -138,6 +138,7 @@ public static class Program
             {
                 var peer = peers.GetAll().FirstOrDefault(p => p.DidHex == did);
                 trust.Add(did, peer?.Name ?? did[..8]);
+                peers.NoteTrusted(did);
                 discovery.ConnectToPeer(did);
                 refreshUis();
             },

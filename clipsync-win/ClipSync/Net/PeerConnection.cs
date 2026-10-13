@@ -23,6 +23,10 @@ public sealed class PeerConnection
     public Action? OnReady;
     public Action<ClipboardItem>? OnItem;
     public Action? OnClose;
+    /// The peer presented a certificate we do not trust, so the handshake was
+    /// turned away. Carries its did, so the registry can show the device and
+    /// offer a Trust button instead of letting it bounce off unseen.
+    public Action<string>? OnRefused;
 
     public byte[]? PeerDid { get; private set; }
     public string? PeerName { get; private set; }
@@ -160,6 +164,16 @@ public sealed class PeerConnection
         var hex = Convert.ToHexString(did).ToLowerInvariant();
         var trusted = _trust.Contains(hex);
         Identity.Log($"ValidatePeer: peer did={hex}, trusted={trusted}");
+        if (!trusted)
+        {
+            // Say what the refusal was about. The certificate parsed fine —
+            // it just isn't one we have trusted — but what the peer sees is
+            // a bare TLS alert, and macOS names it "bad certificate format",
+            // which sends whoever reads that log hunting an encoding bug
+            // that does not exist.
+            Identity.Log($"ValidatePeer: certificate is well-formed but {hex[..8]} is not in the trust store");
+            OnRefused?.Invoke(hex);
+        }
         return trusted;
     }
 
