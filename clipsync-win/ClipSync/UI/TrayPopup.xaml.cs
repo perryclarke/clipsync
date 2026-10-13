@@ -157,21 +157,25 @@ public sealed partial class TrayPopup : Window
         // "Online" there would be actively misleading.
         var muted = peer.State != PeerState.Pending && App.Current.Pause.IsMuted(peer.DidHex);
 
-        // The dot mirrors the state word: green when data can flow, orange
-        // when a mute is why it can't, yellow while still linking up, grey
-        // when off or not yet trusted.
+        // Three states, three colours, used for both the dot and the word it
+        // sits beside so the row reads as one thing: green when data can
+        // flow, blue when the device is waiting on the user to do something,
+        // orange for every reason it is not syncing -- paused, still linking
+        // up, off. The specific reason is always written out next to it, so
+        // the colour never carries meaning on its own.
+        //
         // Amber, not the caution theme brush: WinUI's caution colour is a
-        // yellow, which made a paused peer's dot near-indistinguishable
-        // from Looking's. Matches the Mac's orange and the Paused badge.
+        // yellow, which made a paused peer's dot near-indistinguishable from
+        // Looking's. Matches the Mac's orange and the Paused badge.
         var amber = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0x95, 0x00));
 
-        (Brush dotBrush, string status) = peer.State switch
+        (Brush stateBrush, string status) = peer.State switch
         {
             _ when muted      => (amber, "Paused"),
             PeerState.Online  => (Themed("SystemFillColorSuccessBrush", Colors.LimeGreen), "Online"),
-            PeerState.Pending => (new SolidColorBrush(Colors.Gray), "Waiting to be trusted"),
-            PeerState.Looking => (new SolidColorBrush(Colors.Gold), "Looking…"),
-            _                 => (new SolidColorBrush(Windows.UI.Color.FromArgb(0x99, 0x80, 0x80, 0x80)), "Offline"),
+            PeerState.Pending => (Themed("SystemFillColorAttentionBrush", Colors.DodgerBlue), "Waiting to be trusted"),
+            PeerState.Looking => (amber, "Looking…"),
+            _                 => (amber, "Offline"),
         };
 
         // Three columns: dot, the two-line name/subtitle block, action. The
@@ -189,7 +193,7 @@ public sealed partial class TrayPopup : Window
         var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
         {
             Width = 8, Height = 8,
-            Fill = dotBrush,
+            Fill = stateBrush,
             VerticalAlignment = VerticalAlignment.Center,
         };
         AutomationProperties.SetAccessibilityView(dot, AccessibilityView.Raw);
@@ -206,8 +210,10 @@ public sealed partial class TrayPopup : Window
         // State, then the fingerprint (for eyeball-checking against the
         // other machine when pairing) and the version it reported, in the
         // same "<id> / <version>" shape as the header line. That half is
-        // monospaced like the header; a peer that hasn't connected has no
-        // version yet, so its version is dropped.
+        // monospaced like the header and stays in the row's muted grey --
+        // only the state word is coloured, so the eye goes to the one part
+        // that changes. A peer that hasn't connected has no version yet, so
+        // its version is dropped.
         var mono = new FontFamily("Consolas");
         var sub = new TextBlock
         {
@@ -215,18 +221,13 @@ public sealed partial class TrayPopup : Window
             Foreground = Themed("TextFillColorSecondaryBrush", Colors.Gray),
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        sub.Inlines.Add(new Run { Text = $"{status} • " });
+        sub.Inlines.Add(new Run { Text = status, Foreground = stateBrush });
+        sub.Inlines.Add(new Run { Text = " • " });
         sub.Inlines.Add(new Run { Text = peer.DidHex[..8], FontFamily = mono });
         if (peer.Version is { } pv)
         {
             sub.Inlines.Add(new Run { Text = " / ", FontFamily = mono });
-            var verRun = new Run { Text = pv, FontFamily = mono };
-            // A version different from this machine's is the whole reason
-            // peers report it, so make it stand out in amber instead of the
-            // same muted grey as a matching one.
-            if (pv != Identity.AppVersion)
-                verRun.Foreground = amber;
-            sub.Inlines.Add(verRun);
+            sub.Inlines.Add(new Run { Text = pv, FontFamily = mono });
         }
 
         var textStack = new StackPanel

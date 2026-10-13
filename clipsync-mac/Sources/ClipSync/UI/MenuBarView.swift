@@ -95,7 +95,7 @@ struct MenuBarView: View {
         let paused = coordinator.isPeerPaused(peer.didHex)
         HStack(spacing: 8) {
             Circle()
-                .fill(dotColor(peer, paused: paused))
+                .fill(stateColor(peer, paused: paused))
                 .frame(width: 8, height: 8)
                 // Decorative: the subtitle states the same status in words,
                 // so the colour dot would only be read out twice.
@@ -153,16 +153,18 @@ struct MenuBarView: View {
         .padding(.vertical, 4)
     }
 
-    /// The dot mirrors the state word: green when data can flow, orange
-    /// when a mute is why it can't, yellow while still linking up, grey
-    /// when off or not yet trusted.
-    private func dotColor(_ peer: Peer, paused: Bool) -> Color {
+    /// Three states, three colours, used for both the dot and the word it
+    /// sits beside so the row reads as one thing: **green** when data can
+    /// flow, **blue** when the device is waiting on the user to do
+    /// something, **orange** for every reason it isn't syncing — paused,
+    /// still linking up, off. The specific reason is always written out
+    /// next to it, so the colour never carries meaning on its own.
+    private func stateColor(_ peer: Peer, paused: Bool) -> Color {
         if paused && peer.state == .online { return .orange }
         switch peer.state {
         case .online:  return .green
-        case .looking: return .yellow
-        case .offline: return Color.gray.opacity(0.6)
-        case .pending: return Color.gray
+        case .pending: return .blue
+        case .looking, .offline: return .orange
         }
     }
 
@@ -170,18 +172,18 @@ struct MenuBarView: View {
         // State, then the fingerprint (for eyeball-checking against the
         // other machine when pairing) and the version it reported, in the
         // same "<id> / <version>" shape as this Mac's header line. That half
-        // uses the header's monospaced font; a peer that hasn't connected
-        // has no version yet, so its version is dropped.
+        // uses the header's monospaced font and stays in the row's muted
+        // grey — only the state word is coloured, so the eye goes to the one
+        // part that changes. A peer that hasn't connected has no version
+        // yet, so its version is dropped.
         let mono = Font.caption.monospaced()
-        var line = Text("\(stateLabel(peer, paused: paused)) • ").font(.caption)
+        var line = Text(stateLabel(peer, paused: paused))
+            .font(.caption)
+            .foregroundColor(stateColor(peer, paused: paused))
+            + Text(" • ").font(.caption)
             + Text(peer.fingerprintShort).font(mono)
         if let v = peer.version {
-            // A version different from this Mac's is the whole reason peers
-            // report it, so make it stand out in amber instead of the same
-            // muted grey as a matching one.
-            let version = Text(v).font(mono)
-            line = line + Text(" / ").font(mono)
-                + (v == myVersion ? version : version.foregroundColor(.orange))
+            line = line + Text(" / ").font(mono) + Text(v).font(mono)
         }
         return line
     }
