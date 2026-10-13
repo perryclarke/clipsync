@@ -152,7 +152,7 @@ together so the registry never learns what a pause is.
   (`CFBundleShortVersionString` + `CFBundleVersion`),
   `clipsync-win/ClipSync/ClipSync.csproj` (`<Version>`),
   `clipsync-win/installer/ClipSync.wxs` (`Version="x.y.z.0"`), and
-  `clipsync-linux/ClipSync.Linux.csproj` (`<Version>`). Currently 0.8.0. Compatibility is signalled by `caps`, not the version number.
+  `clipsync-linux/ClipSync.Linux.csproj` (`<Version>`). Currently 0.8.5. Compatibility is signalled by `caps`, not the version number.
 
 ## Working conventions
 
